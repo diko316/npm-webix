@@ -17,11 +17,7 @@
   "keywords": [
     "webix"
   ],
-  "author": "Diko Tech Slave",
   "license": "SEE LICENSE IN license.text",
-  "bugs": {
-    "url": "https://github.com/diko316/webix/issues"
-  },
   "homepage": "https://webix.com",
   "devDependencies": {
     "css-loader": "^0.26.4",
