@@ -1,0 +1,43 @@
+{
+  "name": "webix-npm",
+  "version": "4.3.0",
+  "description": "NPM build of Webix UI Framework",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Nothing to Test\" && exit 0",
+    "prestart": "node_modules/.bin/webpack --hide-modules",
+    "start": "node webpack.dev.server.js",
+    "build": "BUILD_MODE=production && node_modules/.bin/webpack --hide-modules",
+    "build-optimized": "BUILD_MODE=compressed && node_modules/.bin/webpack --hide-modules"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://diko316@github.com/diko316/webix.git"
+  },
+  "keywords": [
+    "webix"
+  ],
+  "author": "Diko Tech Slave",
+  "license": "SEE LICENSE IN license.text",
+  "bugs": {
+    "url": "https://github.com/diko316/webix/issues"
+  },
+  "homepage": "https://webix.com",
+  "devDependencies": {
+    "css-loader": "^0.26.4",
+    "express": "^4.15.3",
+    "extract-text-webpack-plugin": "^2.1.0",
+    "file-loader": "^0.10.1",
+    "jshint": "^2.9.4",
+    "jshint-loader": "^0.8.4",
+    "less": "^2.7.2",
+    "less-loader": "^2.2.3",
+    "style-loader": "^0.13.2",
+    "uglify-js": "^2.8.26",
+    "uglifyjs-webpack-plugin": "^0.4.3",
+    "url-loader": "^0.5.8",
+    "webpack": "^2.5.1",
+    "webpack-dev-middleware": "^1.10.2",
+    "webpack-hot-middleware": "^2.18.0"
+  }
+}

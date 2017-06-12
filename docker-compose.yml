@@ -1,0 +1,32 @@
+version: '2'
+
+services:
+
+  server:
+    build: .
+    image: webix-npm
+    container_name: "webix-server"
+    hostname: webix-server
+    command: bin/run-devserver.sh
+
+    volumes:
+     - .:/opt/app-source:ro
+
+    ports:
+      - "3000:3000"
+      
+  builder:
+    image: webix-npm
+    container_name: "webix-builder"
+    command: bin/autosync-builds.sh
+    
+    environment:
+     - BUILD_MODE=development
+     - SOURCE_MOD_PATH=/opt/app-source-modification
+  
+    volumes:
+      - ./dist:/opt/app/dist
+      - .:/opt/app-source:ro
+      - .:/opt/app-source-modification:rw
+
+
