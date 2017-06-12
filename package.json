@@ -1,7 +1,7 @@
 {
   "name": "webix-npm",
   "version": "4.3.0",
-  "description": "NPM build of Webix UI Framework",
+  "description": "NPM build of Webix UI Components",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Nothing to Test\" && exit 0",
