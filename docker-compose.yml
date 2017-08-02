@@ -3,8 +3,10 @@ version: '2'
 services:
 
   server:
-    build: .
     image: webix-npm
+    build:
+       context: .
+       dockerfile: Dockerfile
     container_name: "webix-server"
     hostname: webix-server
     command: bin/run-devserver.sh
