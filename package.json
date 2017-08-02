@@ -1,6 +1,6 @@
 {
   "name": "webix-npm",
-  "version": "4.4.0",
+  "version": "4.4.1",
   "description": "NPM build of Webix UI Components",
   "main": "index.js",
   "scripts": {
