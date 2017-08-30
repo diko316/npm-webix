@@ -3,7 +3,7 @@
 	<meta charset="utf-8">
 	<title>DataTable Export to PDF: Custom configuration</title>
 
-	<link rel="stylesheet" href="../../../codebase/webix.css" type="text/css" media="screen" charset="utf-8">
+	<link rel="stylesheet" href="../../../codebase/webix.css" type="text/css"   charset="utf-8">
 	<script src="../../../codebase/webix.js" type="text/javascript" charset="utf-8"></script>
 
 	<link rel="stylesheet" type="text/css" href="../common/samples.css">
@@ -47,7 +47,7 @@
 			{ margin:5, cols:[
 				{ view:"button", value:"Export with page header", autowidth:true, click:function(){
 					webix.toPDF($$("$datatable1"), {
-						docHeader:"This document was made with Webix library. http://webix.com",
+						docHeader:"This document was made with Webix library. https://webix.com",
 					});
 				}},
 				{ view:"button", value:"Export with page image header", autowidth:true, click:function(){

@@ -12,5 +12,3 @@ webix = global.webix;
 webix["default"] = webix;
 
 module.exports = webix;
-
-
