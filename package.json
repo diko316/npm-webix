@@ -2,15 +2,14 @@
   "name": "webix-npm",
   "version": "4.4.4",
   "description": "NPM build of Webix UI Components",
-  "main": "index.js",
-  "module": "index-es.js",
-  "jsnext:main": "index-es.js",
+  "main": "dist/webix-npm.js",
+  "module": "dist/webix-npm.es.js",
+  "jsnext:main": "dist/webix-npm.es.js",
   "scripts": {
-    "test": "echo \"Nothing to Test\" && exit 0",
-    "prestart": "node_modules/.bin/webpack --hide-modules",
-    "start": "node webpack.dev.server.js",
-    "build": "BUILD_MODE=production && node_modules/.bin/webpack --hide-modules",
-    "build-optimized": "BUILD_MODE=compressed && node_modules/.bin/webpack --hide-modules"
+    "test": "echo \"Nothing to Test.\" && exit 0",
+    "start": "bin/build-bundle.sh start || exit 1",
+    "build": "bin/build-bundle.sh build || exit 1",
+    "build-optimized": "bin/build-bundle.sh build-optimized || exit 1"
   },
   "repository": {
     "type": "git",
@@ -22,20 +21,14 @@
   "license": "SEE LICENSE IN license.text",
   "homepage": "https://webix.com",
   "devDependencies": {
-    "css-loader": "^0.26.4",
-    "express": "^4.15.3",
-    "extract-text-webpack-plugin": "^2.1.0",
-    "file-loader": "^0.10.1",
-    "jshint": "^2.9.4",
-    "jshint-loader": "^0.8.4",
-    "less": "^2.7.2",
-    "less-loader": "^2.2.3",
-    "style-loader": "^0.13.2",
-    "uglify-js": "^2.8.26",
-    "uglifyjs-webpack-plugin": "^0.4.3",
-    "url-loader": "^0.5.8",
-    "webpack": "^2.5.1",
-    "webpack-dev-middleware": "^1.10.2",
-    "webpack-hot-middleware": "^2.18.0"
+    "rollup": "^0.48.2",
+    "rollup-plugin-browsersync": "^0.2.4",
+    "rollup-plugin-buble": "^0.15.0",
+    "rollup-plugin-commonjs": "^8.2.0",
+    "rollup-plugin-json": "^2.3.0",
+    "rollup-plugin-node-builtins": "^2.1.2",
+    "rollup-plugin-node-globals": "^1.1.0",
+    "rollup-plugin-node-resolve": "^3.0.0",
+    "rollup-plugin-uglify": "^2.0.1"
   }
 }

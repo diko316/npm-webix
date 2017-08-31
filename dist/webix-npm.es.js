@@ -1,9 +1,3 @@
-(function (global, factory) {
-	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
-	typeof define === 'function' && define.amd ? define(['exports'], factory) :
-	(factory((global['webix-npm'] = {})));
-}(this, (function (exports) { 'use strict';
-
 var global$1 = typeof global !== "undefined" ? global :
             typeof self !== "undefined" ? self :
             typeof window !== "undefined" ? window : {};
@@ -37871,17 +37865,16 @@ webix.protoUI({
 	}
 }, webix.IdSpace, webix.ui.layout);
 
+var wx;
+
 if (typeof global$1.webix === 'undefined') {
     throw new Error("Webix global variable do not exist.");
 }
 
-exports.webix = global$1.webix;
+wx = global$1.webix;
 
-var wx$1 = exports.webix;
+var wx$1 = wx;
 
-exports['default'] = wx$1;
-
-Object.defineProperty(exports, '__esModule', { value: true });
-
-})));
-//# sourceMappingURL=webix-npm.js.map
+export { wx as webix };
+export default wx$1;
+//# sourceMappingURL=webix-npm.es.js.map
