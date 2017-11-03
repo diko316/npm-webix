@@ -9,7 +9,7 @@
 		<script type="text/javascript" charset="utf-8">
 		
 		
-		var ui = webix.ui({
+		webix.ui({
 			view:"form", id:"myform", elements:[
 				{ view:"slider", label:"Level", min:-50, max:50,  value:-20, title:webix.template("Selected: #value#"), name:"s1"},
 				{ view:"slider", label:"Level", min:-50, max:50,  value:"0", title:webix.template("Selected: #value#"), name:"s2"},
@@ -28,13 +28,13 @@
 			$$('myform').setValues({
 				s1:-10, s2:10, s3:0
 			});
-		};
+		}
 		function get(){
 			var data = $$('myform').getValues();
 			webix.message(data.s1);
 			webix.message(data.s2);
 			webix.message(data.s3);
-		};
+		}
 		</script>
 		
 	</body>

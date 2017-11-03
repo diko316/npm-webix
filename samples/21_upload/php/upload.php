@@ -16,7 +16,7 @@ if (isset($_FILES['upload'])){
     	if(file_exists($filename))
     		unlink($filename);
 
-        move_uploaded_file($file["tmp_name"], $filename);
+        //move_uploaded_file($file["tmp_name"], $filename);
         $res = array("status" => "server", "sname" => $sname);
     } else {
         $res = array("status" => "error");
