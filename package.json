@@ -1,6 +1,6 @@
 {
   "name": "webix-npm",
-  "version": "4.4.5",
+  "version": "5.0.0",
   "description": "NPM build of Webix UI Components",
   "main": "dist/webix-npm.js",
   "module": "dist/webix-npm.es.js",

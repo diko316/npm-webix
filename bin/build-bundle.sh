@@ -8,9 +8,13 @@ echo "building... ${1}";
 
 # rebuilding webix
 cat src/webix_global_top_fix.js > src/webix_clean.js
-cat webix_debug.js >> src/webix_clean.js
-cat src/webix_global_bottom_fix.js >> src/webix_clean.js
 
+# cleanup webix bad practices
+cat webix_debug.js | \
+    sed -r 's|global = this|/* never overwrite "global" var */|g' | \
+    sed -r 's/\beval\(/evilCall(/g' >> src/webix_clean.js
+
+cat src/webix_global_bottom_fix.js >> src/webix_clean.js
 
 case "${1}" in
     "start")

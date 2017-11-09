@@ -11,11 +11,15 @@ cd "${ROOT}"
 if npm run test; then
     
     echo "Proceed to build."
+    bin/build-bundle.sh build
+    bin/build-bundle.sh build-optimized
+    # npm run build
+    # npm run build-optimized
+
+    find "${TARGET}/" -maxdepth 1 -name ".*" && \
+        rm -Rf $(find "${TARGET}/" -maxdepth 1 -name ".*")
     
-    npm run build
-    npm run build-optimized
-    
-    if chown $(stat -c '%u:%g' ${ROOT}/dist) -R ${ROOT}/dist/*; then
+    if chown $(stat -c '%u:%g' ${TARGET}) -R ${TARGET}/*; then
         echo "Built all sources to output directory."
         
     else

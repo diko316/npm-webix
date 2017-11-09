@@ -4,9 +4,7 @@ services:
 
   server:
     image: webix-npm
-    build:
-       context: .
-       dockerfile: Dockerfile
+    build: .
     container_name: "webix-server"
     hostname: webix-server
     command: bin/run-devserver.sh
@@ -15,7 +13,7 @@ services:
      - .:/opt/app-source:ro
 
     ports:
-      - "3000:3000"
+     - "3000:3000"
       
   builder:
     image: webix-npm

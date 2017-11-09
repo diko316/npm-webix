@@ -8,10 +8,24 @@ var global$1 = typeof global !== "undefined" ? global :
             typeof self !== "undefined" ? self :
             typeof window !== "undefined" ? window : {};
 
-var webix$1 = global$1.webix;
+var nodeGlobal = (function (glob) {
+                    // this is true when running in browser
+                    if (typeof glob.global === "undefined") {
+                        glob.global = glob;
+                    }
+                    return glob;
+                })(global$1);
+var webix$1 = nodeGlobal.webix;
+
+function evilCall(code) {
+    var Fun = evilCall.constructor;
+    return (new Fun('global', 'with (global) {' + code + '}'))(nodeGlobal);
+}
+
+nodeGlobal.evilCall = evilCall;
 /*
 @license
-webix UI v.4.4.0
+webix UI v.5.0.0
 This software is allowed to use under GPL or you need to obtain Commercial License 
  to use it in non-GPL project. Please contact sales@webix.com for details
 */
@@ -62,7 +76,7 @@ webix$1.assert_level_out = function(){
 /*
 	Common helpers
 */
-webix$1.version="4.4.0";
+webix$1.version="5.0.0";
 webix$1.codebase="./";
 webix$1.name = "core";
 webix$1.cdn = "//cdn.webix.com";
@@ -344,7 +358,7 @@ webix$1._modules = {};	//hash of already loaded modules
 webix$1.exec=function(code){
 	if (window.execScript)	//special handling for IE
 		{ window.execScript(code); }
-	else { window.eval(code); }
+	else { window.evilCall(code); }
 };
 
 webix$1.wrap = function(code, wrap){
@@ -403,7 +417,7 @@ webix$1.toFunctor=function(str, scope){
 	if (typeof(str)=="string"){
 		var method = str.replace("()","");
 		if (scope && scope[method]) { return scope[method]; }
-		return window[method] || eval(str);
+		return window[method] || evilCall(str);
 	}
 	return str;
 };
@@ -743,7 +757,7 @@ webix$1.env = {};
 
 	if(agent.toLowerCase().indexOf("android")!=-1){
 		webix$1.env.isAndroid = true;
-		if(agent.toLowerCase().indexOf("trident")){
+		if(agent.toLowerCase().indexOf("trident")!=-1){
 			webix$1.env.isAndroid = false;
 			webix$1.env.isIEMobile = true;
 		}
@@ -1154,343 +1168,334 @@ webix$1.debug_blacklist={
 };
 
 /**
-
 Bazed on Promiz - A fast Promises/A+ library 
 https://github.com/Zolmeister/promiz
-
 The MIT License (MIT)
-
 Copyright (c) 2014 Zolmeister
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 */
 
 /* jshint ignore:start */
 (function (self) {
-  var now = typeof setImmediate !== 'undefined' ? setImmediate : function(cb) {
-    setTimeout(cb, 0);
-  };
-  
-  /**
-   * @constructor
-   */
-  function promise(fn, er) {
-    var self = this;
+	/* never overwrite "global" var */
 
-    self.promise = self;
-    self.state = 'pending';
-    self.val = null;
-    self.fn = fn || null;
-    self.er = er || null;
-    self.next = [];
-  }
+	var queueId = 1;
+	var queue = {};
+	var isRunningTask = false;
 
-  promise.prototype.resolve = function (v) {
-    var self = this;
-    if (self.state === 'pending') {
-      self.val = v;
-      self.state = 'resolving';
+	if (!global$1.setImmediate)
+		{ global$1.addEventListener('message', function (e) {
+			if (e.source == global$1){
+				if (isRunningTask)
+					{ nextTick(queue[e.data]); }
+				else {
+					isRunningTask = true;
+					try {
+						queue[e.data]();
+					} catch (e) {}
 
-      now(function () {
-        self.fire();
-      });
-    }
-  };
+					delete queue[e.data];
+					isRunningTask = false;
+				}
+			}
+		}); }
 
-  promise.prototype.reject = function (v) {
-    var self = this;
-    if (self.state === 'pending') {
-      self.val = v;
-      self.state = 'rejecting';
+	function nextTick(fn) {
+		if (global$1.setImmediate) { setImmediate(fn); }
+		// if inside of web worker
+		else if (global$1.importScripts) { setTimeout(fn); }
+		else {
+			queueId++;
+			queue[queueId] = fn;
+			global$1.postMessage(queueId, '*');
+		}
+	}
 
-      now(function () {
-        self.fire();
-      });
-    }
-  };
+	Deferred.resolve = function (value) {
+		if (!(this._d == 1))
+			{ throw TypeError() }
+	
+		if (value instanceof Deferred)
+			{ return value }
+	
+		return new Deferred(function (resolve) {
+				resolve(value);
+		})
+	};
 
-  promise.prototype.then = function (fn, er) {
-    var self = this;
-    var p = new promise(fn, er);
-    self.next.push(p);
-    if (self.state === 'resolved') {
-      p.resolve(self.val);
-    }
-    if (self.state === 'rejected') {
-      p.reject(self.val);
-    }
-    return p
-  };
-  promise.prototype.fail = function (er) {
-    return this.then(null, er)
-  };
-  promise.prototype.finish = function (type) {
-    var self = this;
-    self.state = type;
+	Deferred.reject = function (value) {
+		if (!(this._d == 1))
+			{ throw TypeError() }
 
-    if (self.state === 'resolved') {
-      for (var i = 0; i < self.next.length; i++)
-        { self.next[i].resolve(self.val); }
-    }
+		return new Deferred(function (resolve, reject) {
+				reject(value);
+		})
+	};
 
-    if (self.state === 'rejected') {
-      for (var i = 0; i < self.next.length; i++)
-        { self.next[i].reject(self.val); }
+	Deferred.all = function (arr) {
+		if (!(this._d == 1))
+			{ throw TypeError() }
 
-      if (webix$1.assert && !self.next.length)
-        { throw(self.val); }
-    }
-  };
+		if (!(arr instanceof Array))
+			{ return Deferred.reject(TypeError()) }
 
-  // ref : reference to 'then' function
-  // cb, ec, cn : successCallback, failureCallback, notThennableCallback
-  promise.prototype.thennable = function (ref, cb, ec, cn, val) {
-    var self = this;
-    val = val || self.val;
-    if (typeof val === 'object' && typeof ref === 'function') {
-      try {
-        // cnt protects against abuse calls from spec checker
-        var cnt = 0;
-        ref.call(val, function(v) {
-          if (cnt++ !== 0) { return }
-          cb(v);
-        }, function (v) {
-          if (cnt++ !== 0) { return }
-          ec(v);
-        });
-      } catch (e) {
-        ec(e);
-      }
-    } else {
-      cn(val);
-    }
-  };
+		var d = new Deferred();
 
-  promise.prototype.fire = function () {
-    var self = this;
-    // check if it's a thenable
-    var ref;
-    try {
-      ref = self.val && self.val.then;
-    } catch (e) {
-      self.val = e;
-      self.state = 'rejecting';
-      return self.fire()
-    }
+		function done(e, v) {
+			if (v)
+				{ return d.resolve(v) }
 
-    self.thennable(ref, function (v) {
-      self.val = v;
-      self.state = 'resolving';
-      self.fire();
-    }, function (v) {
-      self.val = v;
-      self.state = 'rejecting';
-      self.fire();
-    }, function (v) {
-      self.val = v;
-      
-      if (self.state === 'resolving' && typeof self.fn === 'function') {
-        try {
-          self.val = self.fn.call(undefined, self.val);
-        } catch (e) {
-          self.val = e;
-          return self.finish('rejected')
-        }
-      }
+			if (e)
+				{ return d.reject(e) }
 
-      if (self.state === 'rejecting' && typeof self.er === 'function') {
-        try {
-          self.val = self.er.call(undefined, self.val);
-          self.state = 'resolving';
-        } catch (e) {
-          self.val = e;
-          return self.finish('rejected')
-        }
-      }
+			var unresolved = arr.reduce(function (cnt, v) {
+				if (v && v.then)
+					{ return cnt + 1 }
+				return cnt
+			}, 0);
 
-      if (self.val === self) {
-        self.val = TypeError();
-        return self.finish('rejected')
-      }
+			if(unresolved == 0)
+				{ d.resolve(arr); }
 
-      self.thennable(ref, function (v) {
-        self.val = v;
-        self.finish('resolved');
-      }, function (v) {
-        self.val = v;
-        self.finish('rejected');
-      }, function (v) {
-        self.val = v;
-        self.state === 'resolving' ? self.finish('resolved') : self.finish('rejected');
-      });
+			arr.map(function (v, i) {
+				if (v && v.then)
+					{ v.then(function (r) {
+						arr[i] = r;
+						done();
+						return r
+					}, done); }
+			});
+		}
 
-    });
-  };
+		done();
 
-  promise.prototype.done = function () {
-    if (this.state = 'rejected' && !this.next) {
-      throw this.val
-    }
-    return null
-  };
+		return d
+	};
 
-  promise.prototype.nodeify = function (cb) {
-    if (typeof cb === 'function') { return this.then(function (val) {
-        try {
-          cb(null, val);
-        } catch (e) {
-          setImmediate(function () {
-            throw e
-          });
-        }
+	Deferred.race = function (arr) {
+		if (!(this._d == 1))
+			{ throw TypeError() }
 
-        return val
-      }, function (val) {
-        try {
-          cb(val);
-        } catch (e) {
-          setImmediate(function () {
-            throw e
-          });
-        }
+		if (!(arr instanceof Array))
+			{ return Deferred.reject(TypeError()) }
 
-        return val
-      }) }
+		if (arr.length == 0)
+			{ return new Deferred() }
 
-    return this
-  };
+		var d = new Deferred();
 
-  promise.prototype.spread = function (fn, er) {
-    return this.all().then(function (list) {
-      return typeof fn === 'function' && fn.apply(null, list)
-    }, er)
-  };
-  
-  promise.prototype.all = function() {
-    var self = this;
-    return this.then(function(list){
-      var p = new promise();
-      if(!(list instanceof Array)) {
-        p.reject(TypeError);
-        return p
-      }
-      
-      var cnt = 0;
-      var target = list.length;
-      
-      function done() {
-        if (++cnt === target) { p.resolve(list); }
-      }
-      
-      for(var i=0, l=list.length; i<l; i++) {
-        var value = list[i];
-        var ref;
-        
-        try {
-          ref = value && value.then;
-        } catch (e) {
-          p.reject(e);
-          break
-        }
-        
-        (function(i){
-          self.thennable(ref, function(val){
-            list[i] = val;
-            done();
-          }, function(val){
-            p.reject(val);
-          }, function(){
-            done();
-          }, value);
-        })(i);
-      }
+		function done(e, v) {
+			if (v)
+				{ return d.resolve(v) }
 
-      return p
-    })
-  };
+			if (e)
+				{ return d.reject(e) }
 
-  // self object gets globalalized/exported
-  var promiz = {
+			var unresolved = arr.reduce(function (cnt, v) {
+				if (v && v.then)
+					{ return cnt + 1 }
+				return cnt
+			}, 0);
 
-    all:function(list){
-      var p = new promise(null, null);
-      p.resolve(list);
-      return p.all();
-    },
-    // promise factory
-    defer: function () {
-      return new promise(null, null)
-    },
+			if(unresolved == 0)
+				{ d.resolve(arr); }
 
-    reject:function(v){
-      var t = this.defer();
-      t.state = "rejected";
-      t.val = v;
-      return t;
-    },
+			arr.map(function (v, i) {
+				if (v && v.then)
+					{ v.then(function (r) {
+						done(null, r);
+					}, done); }
+			});
+		}
 
-    resolve:function(v){
-      var t = this.defer();
-      t.state = "resolved";
-      t.val = v;
-      return t;
-    },
+		done();
 
-    // calls a function and resolved as a promise
-    fcall: function() {
-      var def = new promise();
-      var args = Array.apply([], arguments);
-      var fn = args.shift();
-      try {
-        var val = fn.apply(null, args);
-        def.resolve(val);
-      } catch(e) {
-        def.reject(e);
-      }
+		return d
+	};
 
-      return def
-    },
+	Deferred._d = 1;
 
-    // calls a node-style function (eg. expects callback as function(err, callback))
-    nfcall: function() {
-      var def = new promise();
-      var args = Array.apply([], arguments);
-      var fn = args.shift();
-      try {
 
-        // Add our custom promise callback to the end of the arguments
-        args.push(function(err, val){
-          if(err) {
-            return def.reject(err)
-          }
-          return def.resolve(val)
-        });
-        fn.apply(null, args);
-      } catch (e) {
-        def.reject(e);
-      }
+	/**
+	 * @constructor
+	 */
+	function Deferred(resolver) {
+		'use strict';
+		if (typeof resolver != 'function' && resolver != undefined)
+			{ throw TypeError() }
+			
+		if (typeof this != 'object' || (this && this.then))
+			{ throw TypeError() }
 
-      return def
-    }
-  };
-  
-  self.promise = promiz;
+		// states
+		// 0: pending
+		// 1: resolving
+		// 2: rejecting
+		// 3: resolved
+		// 4: rejected
+		var self = this,
+			state = 0,
+			val = 0,
+			next = [],
+			fn, er;
+
+		self['promise'] = self;
+
+		self['resolve'] = function (v) {
+			fn = self.fn;
+			er = self.er;
+			if (!state) {
+				val = v;
+				state = 1;
+
+				nextTick(fire);
+			}
+			return self
+		};
+
+		self['reject'] = function (v) {
+			fn = self.fn;
+			er = self.er;
+			if (!state) {
+				val = v;
+				state = 2;
+
+				nextTick(fire);
+
+			}
+			return self
+		};
+
+		self['_d'] = 1;
+
+		self['then'] = function (_fn, _er) {
+			if (!(this._d == 1))
+				{ throw TypeError() }
+
+			var d = new Deferred();
+
+			d.fn = _fn;
+			d.er = _er;
+			if (state == 3) {
+				d.resolve(val);
+			}
+			else if (state == 4) {
+				d.reject(val);
+			}
+			else {
+				next.push(d);
+			}
+
+			return d
+		};
+
+		self['catch'] = function (_er) {
+			return self['then'](null, _er)
+		};
+
+		//compatibility with old version of promiz lib
+		self['fail'] = function (_er) {
+			return self['then'](null, _er)
+		};
+
+		var finish = function (type) {
+			state = type || 4;
+			next.map(function (p) {
+				state == 3 && p.resolve(val) || p.reject(val);
+			});
+		};
+
+		try {
+			if (typeof resolver == 'function')
+				{ resolver(self['resolve'], self['reject']); }
+		} catch (e) {
+			self['reject'](e);
+		}
+
+		return self
+
+		// ref : reference to 'then' function
+		// cb, ec, cn : successCallback, failureCallback, notThennableCallback
+		function thennable (ref, cb, ec, cn) {
+			// Promises can be rejected with other promises, which should pass through
+			if (state == 2) {
+				return cn()
+			}
+			if ((typeof val == 'object' || typeof val == 'function') && typeof ref == 'function') {
+				try {
+
+					// cnt protects against abuse calls from spec checker
+					var cnt = 0;
+					ref.call(val, function (v) {
+						if (cnt++) { return }
+						val = v;
+						cb();
+					}, function (v) {
+						if (cnt++) { return }
+						val = v;
+						ec();
+					});
+				} catch (e) {
+					val = e;
+					ec();
+				}
+			} else {
+				cn();
+			}
+		}
+
+		function fire() {
+			// check if it's a thenable
+			var ref;
+			try {
+				ref = val && val.then;
+			} catch (e) {
+				val = e;
+				state = 2;
+				return fire()
+			}
+
+			thennable(ref, function () {
+				state = 1;
+				fire();
+			}, function () {
+				state = 2;
+				fire();
+			}, function () {
+				try {
+					if (state == 1 && typeof fn == 'function') {
+						val = fn(val);
+					}
+
+					else if (state == 2 && typeof er == 'function') {
+						val = er(val);
+						state = 1;
+					}
+				} catch (e) {
+					val = e;
+					return finish()
+				}
+
+				if (val == self) {
+					val = TypeError();
+					finish();
+				} else { thennable(ref, function () {
+						finish(3);
+					}, finish, function () {
+						finish(state == 1 && 3);
+					}); }
+
+			});
+		}
+
+
+	}
+	
+	// promise factory
+	Deferred.defer = function () {
+		return new Deferred(null)
+	};
+	
+	self.promise = Deferred;
 })(webix$1);
 /* jshint ignore:end */
 
@@ -1678,9 +1683,11 @@ webix$1.skin.air = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 14,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:13,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:10, wide:4, clean:0, head:4, line:-1, toolbar:4, form:8  },
@@ -1713,9 +1720,11 @@ webix$1.skin["aircompact"] = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 12,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:12.5,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:10, wide:4, clean:0, head:4, line:-1, toolbar:4, form:8  },
@@ -1751,9 +1760,11 @@ webix$1.skin.web = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 11,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:10,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:10, wide:4, clean:0, head:4, line:-1, toolbar:4, form:8, accordion: 9  },
@@ -1786,9 +1797,11 @@ webix$1.skin.clouds = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 12,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:11,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:10, wide:4, clean:0, head:4, line:-1, toolbar:4, form:8  },
@@ -1821,9 +1834,11 @@ webix$1.skin.terrace = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 14,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:14,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:20, wide:20, clean:0, head:4, line:-1, toolbar:4, form:8},
@@ -1857,9 +1872,11 @@ webix$1.skin.metro = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 14,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:13,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:10, wide:4, clean:0, head:4, line:-1, toolbar:4, form:8, accordion: 9  },
@@ -1894,9 +1911,11 @@ webix$1.skin.light = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 14,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:13,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:15, wide:15, clean:0, head:4, line:-1, toolbar:4, form:8, accordion: 10  },
@@ -1932,9 +1951,11 @@ webix$1.skin.glamour = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 13,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:13,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:15, wide:15, clean:0, head:4, line:-1, toolbar:4, form:8, accordion: 10  },
@@ -1969,9 +1990,11 @@ webix$1.skin.touch = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 18,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:17,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:10, wide:4, clean:0, head:4, line:-1, toolbar:0, form:0, accordion: 9  },
@@ -2008,9 +2031,12 @@ webix$1.skin.flat = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 14,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:15,
+	vSliderHeight:100,
+	
 
 	//margin - distance between cells
 	layoutMargin:{ space:10, wide:10, clean:0, head:4, line:-1, toolbar:4, form:8, accordion: 10  },
@@ -2050,9 +2076,11 @@ webix$1.skin.compact = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 12,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:13,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:5, wide:5, clean:0, head:4, line:-1, toolbar:4, form:4, accordion: 5  },
@@ -2135,9 +2163,11 @@ webix$1.skin.contrast = {
 	inputSpacing: 4,
 	borderWidth: 1,
 
-	sliderHandleWidth: 16,
+	sliderHandleWidth: 14,
 	sliderPadding: 10,
 	sliderBorder: 1,
+	vSliderPadding:15,
+	vSliderHeight:100,
 
 	//margin - distance between cells
 	layoutMargin:{ space:10, wide:10, clean:0, head:4, line:-1, toolbar:8, form:8, accordion: 10  },
@@ -4989,6 +5019,53 @@ webix$1.protoUI({
 		return (!parent || parent.setValues) ? parent : parent.getFormView();
 	},
 	getChildViews:function(){ return []; },
+	queryView:function(search, all){
+		var confirm;
+		if (typeof search === "object"){
+			var keys = Object.keys(search);
+			var values = [];
+			for (var i=0; i<keys.length; i++)
+				{ values[i] = search[keys[i]]; }
+
+			var confirm = function(test){
+				var config = test.config;
+				for (var j=0; j<keys.length; j++)
+					{ if (config[keys[j]] != values[j])
+						{ return false; } } 
+				return true;
+			};
+		} else
+			{ confirm = search; }
+
+		var results = all === "all" ? [] : false;
+		var direction = all === "parent" ? this._queryGoUp : this._queryGoDown;
+		var found = this._queryView(confirm, direction, results);
+		return all === "all" ? results : found;
+	},
+	_queryGoDown:function(node){
+		return node.getChildViews();
+	},
+	_queryGoUp:function(node){
+		var parent = node.getParentView();
+		return parent ? [parent] : [];
+	},
+	_queryView:function(confirm, next, all){
+		var kids = next(this);
+		for (var i =0; i<kids.length; i++){
+			if (confirm(kids[i])){
+				if (all)
+					{ all.push(kids[i]); }
+				else
+					{ return kids[i]; }
+			}
+			else {
+				var sub = kids[i]._queryView(confirm, next, all);
+				if (sub)
+					{ return sub; }
+			} 
+		}
+		return null;
+	},
 	isVisible:function(base_id, prev_id){
 		if (this._settings.hidden){
             if(base_id){
@@ -6383,7 +6460,7 @@ webix$1.animate.formLine=function(next, current, animation){
 		next.style.left = defAniPos + (direction=="left"?1:-1)*current.offsetWidth+"px";
 	}
 
-	// apply 'keepViews' mode, iframe solution
+	// apply 'keepViews' mode, iframe, datatable with x scroll solution
 	//( keepViews won't work in case of "in" and "out" subtypes )
 	if(current.parentNode == next.parentNode && animation.keepViews)
 		{ next.style.display = ""; }
@@ -7581,7 +7658,7 @@ webix$1.Modality = {
 	    else {
 	        if (this._modal_cover){
 	            webix$1.html.remove(this._modal_cover);
-	            document.body.style.overflow = "visible";
+	            document.body.style.overflow = "";
 
 	            //restore topmost modal layer
 	        	//set delay, as current window closing may have not finished click event
@@ -7728,7 +7805,7 @@ webix$1.protoUI({
 			var fin_y = pos.y;
 			var point_y=0;
 			var point_x = 0;
-
+			var scrollLeft = 0, scrollTop = 0;
 			var fit = this._settings.autofit;
 			if (fit){
 				var nochange = (fit === "node");
@@ -7738,7 +7815,7 @@ webix$1.protoUI({
 				point = "top";
 				fin_y=0; fin_x = 0;
 
-				var scrollLeft = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft;
+				scrollLeft = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft;
 				//if we want to place menu at righ, but there is no place move it to left instead
 				if (x - pos.x - dx < size[0] && mode.pos == "right" && !nochange)
 					{ mode.pos = "left"; }
@@ -7772,7 +7849,7 @@ webix$1.protoUI({
 				}
 				
 				//if height is not fixed - use default position
-				var scrollTop = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop;
+				scrollTop = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop;
 				if (((!size[1] || (y+scrollTop-dy-pos.y-delta_y > size[1])) || nochange) && mode.pos != "top"){
 					//bottom	
 					fin_y = dy+pos.y+delta_y - 4;
@@ -7797,10 +7874,17 @@ webix$1.protoUI({
 
 			var deltax = (mode.x || 0);
 			var deltay = (mode.y || 0);
+
+			var fixed = this._checkFixedPosition();
+			if (fixed){
+				fin_y = fin_y - scrollTop;
+				point_y = point_y - scrollTop;
+			}
+
 			this.setPosition(fin_x+deltax, fin_y+deltay);
 			if (this._set_point){
 				if (point)
-					{ this._set_point(point,point_x+deltax, point_y+deltay); }
+					{ this._set_point(point,point_x+deltax, point_y+deltay, fixed); }
 				else
 					{ this._hide_point(); }
 			}
@@ -7961,7 +8045,15 @@ webix$1.protoUI({
 		webix$1.ui.baseview.prototype.adjust.call(this);
 		this._setPosition(this._settings.left, this._settings.top);
 	},
+	_checkFixedPosition: function() {
+		if(this._settings.master) {
+			var top = webix$1.$$(this._settings.master).getTopParentView().$view;
+			return top && top.style.position === "fixed";
+		}
+		return false;
+	},
 	_setPosition:function(x,y){
+		if(this._checkFixedPosition()) { this._settings.position = "center"; }
 		if (this._settings.position){
 			this.$view.style.position = "fixed";
 
@@ -8107,10 +8199,12 @@ webix$1.protoUI({
 	_inner_body_set:function(){},
 	head_setter:function(){
 	},
-	_set_point:function(mode, left, top){
+	_set_point:function(mode, left, top, fixed){
 		this._hide_point();
 		document.body.appendChild(this._point_element = webix$1.html.create("DIV",{ "class":"webix_point_"+mode },""));
 		this._point_element.style.zIndex = webix$1.ui.zIndex();
+		this._point_element.style.position = fixed ? "fixed":"absolute";
+
 		this._point_element.style.top = top+"px";
 		this._point_element.style.left = left+"px";
 	},
@@ -8602,10 +8696,9 @@ webix$1.protoUI({
 				if (!visible)
 					{ this.show(this._last_input_target); }
 				
-				list.moveSelection("down");
+				list.moveSelection("down", false, false);
 			}// other arrows
 			else {
-				var master = this._settings.master;
 				if((list.count && code !==38) || (!list.count && !list.isVisible()))
 					{ return false; }
 
@@ -8618,8 +8711,9 @@ webix$1.protoUI({
 				if(code == 38) { dir = "up"; }
 				if(code == 39) { dir = "right"; }
 
-				list.moveSelection(dir);
+				list.moveSelection(dir, false, false);
 			}
+
 			if(list.count)
 				{ data = list.getSelectedItem(); }
 			else if(list.getSelectedDate)
@@ -9101,8 +9195,8 @@ webix$1.protoUI({
 			if (!this._settings.readonly)
 				{ this.prev(); }
 		},
-		webix_inp_combo:function(e, obj, node){
-			node.focus();
+		webix_input_icon:function(e, obj, node){
+			this.getInputNode().focus();
 		},
 		webix_inp_checkbox_border: function(e, obj, node) {
 			if (!this._settings.disabled && (e.target||e.srcElement).tagName != "DIV" && !this._settings.readonly)
@@ -9181,7 +9275,12 @@ webix$1.protoUI({
 	$setValue:function(value){
 		this._dataobj.firstChild.innerHTML = value;
 	},
-	_set_inner_size:function(){}
+	_set_inner_size:function(){},
+	_calc_size:function(config){
+		config = config || this._settings;
+		if (config.autowidth)
+			{ config.width = webix$1.html.getTextSize((config.value||config.label), "webix_el_label").width; }
+	}
 }, webix$1.ui.button);
 
 webix$1.protoUI({
@@ -9209,8 +9308,10 @@ webix$1.protoUI({
 	_allowsClear:true,
 	_init_onchange:function(){
 		if (this._allowsClear){
-			//define event id to prevent memory leak
-			webix$1._event(this.getInputNode(),"change",this._applyChanges,{bind:this});
+			//attach onChange handler only for controls which do not manage blur on their own
+			//for example - combo
+			if (!this._onBlur)
+				{ webix$1._event(this.getInputNode(), "change", this._applyChanges, {bind:this}); }
 			if (this._settings.suggest)
 		   		{ webix$1.$$(this._settings.suggest).linkInput(this); }
 		 }
@@ -9526,7 +9627,7 @@ webix$1.protoUI({
 
 			for(var i=0; i<options.length; i++){
 				html+="<button type='button' style='width:"+(options[i].width || optionWidth)+"px' role='tab' aria-selected='"+(obj.value==options[i].id?"true":"false")+"' tabindex='"+(obj.value==options[i].id?"0":"-1")+"'";
-				html+="class='"+"webix_segment_"+((i==options.length-1)?"N":(i>0?1:0))+((obj.value==options[i].id)?" webix_selected ":"")+"' button_id='"+options[i].id+"' >";
+				html+="class='"+"webix_segment_"+((i==options.length-1)?"N":(i>0?1:0))+((obj.value==options[i].id)?" webix_selected ":"")+"' button_id='"+options[i].id+"' "+(options[i].tooltip?("title='"+options[i].tooltip+"'"):"")+">";
 				html+= options[i].value+"</button>";
 			}
 			
@@ -9551,6 +9652,10 @@ webix$1.protoUI({
 			else
 				{ webix$1.html.removeCss(options[i], "webix_selected"); }
 		}
+		//refresh tabbar if the option is in the popup list
+		var popup = this.config.tabbarPopup;
+		if(popup && webix$1.$$(popup) && webix$1.$$(popup).getBody().exists(value))
+			{ this.refresh(); }
 	},
 	getValue:function(){
 		return this._settings.value;
@@ -9594,9 +9699,8 @@ webix$1.protoUI({
 		if(this._settings.value == id)
 			{ this._setNextVisible(options, index); }
 			
-        this.callEvent("onOptionRemove", [id, this._settings.value]);
 		this.refresh();
-
+		this.callEvent("onOptionRemove", [id, this._settings.value]);
 	},
 	_setNextVisible: function(options, index){
 		var this$1 = this;
@@ -9649,13 +9753,13 @@ webix$1.protoUI({
 
 webix$1.protoUI({
 	name:"search",
+	$init:function(){
+		this.on_click["fa-search"] = function(e){
+			this.callEvent("onSearchIconClick", [e]);
+		};
+	},
 	$skin:function(){
 		this.defaults.inputPadding = webix$1.skin.$active.inputPadding;
-	},
-	on_click:{
-		"webix_input_icon":function(e){
-			return this.callEvent("onSearchIconClick", [e]);
-		}
 	},
 	defaults:{
 		type:"text",
@@ -9885,19 +9989,18 @@ webix$1.protoUI({
 		return value;
 	},
 	focus: function(){
-		var input = this.$view.getElementsByTagName(this._settings.customCheckbox?"button":"input")[0];
-		if(input)
-			{ input.focus(); }
+		var input = this.getInputNode();
+		if(input) { input.focus(); }
 	},
 	blur: function(){
-		var input = this.$view.getElementsByTagName(this._settings.customCheckbox?"button":"input")[0];
-		if(input)
-			{ input.blur(); }
+		var input = this.getInputNode();
+		if(input) { input.blur(); }
 	},
 	_init_onchange: function(){},
 	$setValue:function(value){
 		var isChecked = (value == this._settings.checkValue);
-		var parentNode = this.getInputNode()?this.getInputNode().parentNode:null;
+		var input = this.$view.getElementsByTagName("input")[0];
+		var parentNode = input?input.parentNode:null;
 
 		if(parentNode && this._settings.customCheckbox){
 			var button = parentNode.getElementsByTagName("BUTTON");
@@ -9906,7 +10009,7 @@ webix$1.protoUI({
 		if(parentNode){
 			parentNode.className = parentNode.className.replace(/(webix_checkbox_)\d/,"$1"+(isChecked?1:0));
 		}
-		this.getInputNode().checked = isChecked;
+		input.checked = isChecked;
 	},
 	toggle:function(){
 		var value = (this.getValue() != this._settings.checkValue)?this._settings.checkValue:this._settings.uncheckValue;
@@ -9915,6 +10018,9 @@ webix$1.protoUI({
 	getValue:function(){
 		var value = this._settings.value;
 		return  (value == this._settings.checkValue)?this._settings.checkValue:this._settings.uncheckValue;
+	},
+	getInputNode: function() {
+		return this.$view.getElementsByTagName(this._settings.customCheckbox?"button":"input")[0];
 	},
 	$skin:function(){
 		if(webix$1.skin.$active.customCheckbox)
@@ -10095,7 +10201,12 @@ webix$1.protoUI({
 			node = this.getInputNode();
 		if(!node)
 			{ return value?this.getPopup().getItemText(value):""; }
-		return typeof node.value == "undefined" ? (this.getValue()?node.innerHTML:"") : node.value;
+		if (typeof node.value == "undefined"){
+			if (node.firstChild && node.firstChild.className === "webix_placeholder")
+				{ return ""; }
+			return node.innerHTML;
+		}
+		return node.value;
 	},
 	$setValue:function(value){
 		if (!this._rendered_input) { return; }
@@ -10366,7 +10477,7 @@ webix$1.protoUI({
 	$prepareValue:function(value){
 		if(value && value.charAt && value.charAt(0) != "#")
 			{ value = '#' + value; }
-		return value;
+		return value || "";
 	},
 	_getColorNode: function(){
 		return this.$view.getElementsByTagName("DIV")[this._settings.editable?1:2];
@@ -11713,9 +11824,13 @@ webix$1.DataStore.prototype={
 			//[WE-CAN-DO-BETTER]
 			if (this._make_full_copy){
 				this._make_full_copy = false;
+				var oldpull = this.pull;
 				this.pull = {};
-				for (var key in data.pull)
-					{ this$1.pull[key] = webix$1.copy(data.pull[key]); }
+				for (var key in data.pull){
+					var old = oldpull[key];
+					this$1.pull[key] = webix$1.copy(data.pull[key]);
+					if (old && old.open) { this$1.pull[key].open = true; }
+				}
 			}
 			else
 				{ this.pull = data.pull; }
@@ -12613,12 +12728,12 @@ webix$1.protoUI({
 		if (config.flip)
 			{ direction = ""; }
 
-		
-
 		//make copy of existing view
 		var top = 0;
 		var snode = this.$master._dataobj;
-		if (this.$master._body){	//datatable
+		var isDataTable = !!this.$master._body;
+
+		if (isDataTable){
 			snode = this.$master._body;
 			top = snode.offsetTop;
 			webix$1.html.addCss(this.$master.$view, "webix_animation");
@@ -12631,6 +12746,8 @@ webix$1.protoUI({
 		this.$master.refresh();
 		//append copy next to original
 		webix$1.html.insertBefore(onode, snode.nextSibling, snode.parentNode);
+		if(isDataTable)
+			{ onode.childNodes[1].scrollLeft = snode.childNodes[1].scrollLeft; }
 
 		//animation config
 		var line;
@@ -12644,7 +12761,7 @@ webix$1.protoUI({
 				if (this.$master._body)
 					{ webix$1.html.removeCss(this.$master.$view, "webix_animation"); }
 			},this),
-			top:top
+			top:top, keepViews: isDataTable
 		}, base);
 
 		//run animation
@@ -12914,7 +13031,7 @@ webix$1.AutoTooltip = {
 				}
 
 				if (!webix$1.DragControl.active)
-					{ t.show(this.getItem(id),webix$1.html.pos(e)); }
+					{ t.show(this.getItem(id.row || id),webix$1.html.pos(e)); }
 			});
 			// [[IMPROVE]]  As we can can have only one instance of tooltip per page 
 			//				this handler can be attached once per page, not once per component
@@ -13195,6 +13312,8 @@ webix$1.protoUI({
 		this._viewobj.setAttribute("role", "toolbar");
 	},
 	_recollect_elements:function(){
+		var this$1 = this;
+
 		var form = this;
 		form.elements = {};
 		webix$1.ui.each(this, function(view){
@@ -13211,7 +13330,17 @@ webix$1.protoUI({
 
 			if (view.setValues) { return false; }
 		});
+		var old = this._values;
 		this.setDirty(false);
+		if (old) {
+			//restore dirty state after form reconstructing
+			var now = this._values;
+			for (var key in form.elements) 
+				{ if (old[key] && now[key] != old[key]){
+					now[key] = old[key];
+					this$1.setDirty(true);
+				} }
+		}
 	},
 	_parse_cells_ext_end:function(){
 		this._recollect_elements();
@@ -13396,13 +13525,22 @@ webix$1.protoUI({
 	},
 	_get_auto_height:function(){
 		var size;
-			
-		this._probably_render_me();
 		var padding = webix$1.skin.$active.layoutPadding.space;
-		this._dataobj.style.height = "auto";
-		size = this._dataobj.scrollHeight;
-		this._dataobj.style.height = "";
+		
+		this._probably_render_me();
 
+		if(!this.isVisible()){ //try getting height of a hidden template
+			size = webix$1.html.getTextSize(
+				this._toHTML(this.data) || this._dataobj.innerHTML, //check for config.content 
+				"webix_template",
+				(this.$width || (this.getParentView() ? this.getParentView().$width :0))-padding
+			).height;
+		}
+		else{ 
+			this._dataobj.style.height = "auto";
+			size = this._dataobj.scrollHeight;
+			this._dataobj.style.height = "";
+		}
 		return size;
 	},
 	_one_time_scroll:true //scroll will appear only if set directly in config
@@ -14226,20 +14364,29 @@ webix$1.TreeStore = {
 		this.eachOpen(function(){ count++; });
 		return count;
 	},
-	changeId:function(old, newid){
+	_change_branch_id:function(branches, parent, old, newid){
 		var this$1 = this;
 
-		if (this.branch[old]){
-			var branch = this.branch[newid] = this.branch[old];
+		if (branches[old]){
+			var branch = branches[newid] = branches[old];
 			for (var i = 0; i < branch.length; i++)
 				{ this$1.getItem(branch[i]).$parent = newid; }
-			delete this.branch[old];
+			delete branches[old];
 		}
+		if (branches[parent]){
+			var index = webix$1.PowerArray.find.call(branches[parent], old);
+			if (index >= 0)
+				{ branches[parent][index] = newid; }
+		}
+	},
+	changeId:function(old, newid){
 		var parent = this.getItem(old).$parent;
-		if (parent != "0"){
-			var index = webix$1.PowerArray.find.call(this.branch[parent], old);
-			this.branch[parent][index] = newid;
-		}
+		this._change_branch_id(this.branch, parent, old, newid);
+
+		//in case of filter applied, update id in filtered state as well
+		if (this._filter_branch)
+			{ this._change_branch_id(this._filter_branch, parent, old, newid); }
+
 		return webix$1.DataStore.prototype.changeId.call(this, old, newid);
 	},
 	clearAll:function(soft){
@@ -14530,6 +14677,7 @@ webix$1.TreeStore = {
 					{ original_index = 0; }
 
 				origin = webix$1.toArray(origin);
+				obj.id = obj.id || webix$1.uid();
 				origin.insertAt(obj.id,original_index);
 			}
 		}
@@ -15545,6 +15693,10 @@ webix$1.clipbuffer = {
 		this._area = document.createElement('textarea');
 		this._area.className = "webix_clipbuffer";
 		this._area.setAttribute("webixignore", 1);
+		this._area.setAttribute("spellcheck", "false");
+		this._area.setAttribute("autocapitalize", "off");
+		this._area.setAttribute("autocorrect", "off");
+		this._area.setAttribute("autocomplete", "off");
 		document.body.appendChild(this._area);
 
 		webix$1.event(document.body, 'keydown', webix$1.bind(function(e){
@@ -15694,12 +15846,12 @@ webix$1.KeysNavigation = {
 
             if (view && view.moveSelection && view.config.navigation && !view._in_edit_mode){
                 webix$1.html.preventEvent(e);
-                return view.moveSelection(mode, e.shiftKey);
+                return view.moveSelection(mode, {shift:e.shiftKey, ctrl:e.ctrlKey});
             }
             return true;
         };
     },
-    moveSelection:function(mode, shift){
+    moveSelection:function(mode, details, focus){
         var config = this._settings;
         if(config.disabled) { return; }
         //get existing selection
@@ -15760,7 +15912,7 @@ webix$1.KeysNavigation = {
             if(this.getSubMenu && this.getSubMenu(selected))
                 { this._mouse_move_activation(selected, this.getItemNode(selected)); }
 
-            if(!this.config.clipboard){
+            if(!this.config.clipboard && focus !== false){
                 var node = this.getItemNode(selected);
                 if(node) { node.focus(); }
             }
@@ -15775,16 +15927,25 @@ webix$1.KeysNavigation = {
             //you can define moveSelection method to handle navigation keys
             webix$1.UIManager.addHotKey("up",         this._navigation_helper("up"));
             webix$1.UIManager.addHotKey("down",       this._navigation_helper("down"));
+            webix$1.UIManager.addHotKey("right",      this._navigation_helper("right"));
+            webix$1.UIManager.addHotKey("left",       this._navigation_helper("left"));
+
             webix$1.UIManager.addHotKey("shift+up",   this._navigation_helper("up"));
             webix$1.UIManager.addHotKey("shift+down", this._navigation_helper("down"));
             webix$1.UIManager.addHotKey("shift+right",   this._navigation_helper("right"));
             webix$1.UIManager.addHotKey("shift+left", this._navigation_helper("left"));
+
+            webix$1.UIManager.addHotKey("ctrl+shift+up",   this._navigation_helper("up"));
+            webix$1.UIManager.addHotKey("ctrl+shift+down", this._navigation_helper("down"));
+            webix$1.UIManager.addHotKey("ctrl+shift+right",   this._navigation_helper("right"));
+            webix$1.UIManager.addHotKey("ctrl+shift+left", this._navigation_helper("left"));
+
             webix$1.UIManager.addHotKey("pageup", 	this._navigation_helper("pgup"));
             webix$1.UIManager.addHotKey("pagedown",   this._navigation_helper("pgdown"));
             webix$1.UIManager.addHotKey("home", 	    this._navigation_helper("top"));
             webix$1.UIManager.addHotKey("end", 		this._navigation_helper("bottom"));
-            webix$1.UIManager.addHotKey("right", 	    this._navigation_helper("right"));
-            webix$1.UIManager.addHotKey("left",		this._navigation_helper("left"));
+
+            
 
         }
 
@@ -16394,7 +16555,8 @@ webix$1.NavigationButtons = {
 		webix$1.assert(view, "non-existing view for printing");
 		if(!view) { return; }
 
-		view.callEvent("onBeforePrint", [options]);
+		if(view.callEvent)
+			{ view.callEvent("onBeforePrint", [options]); }
 
 		options = _checkOptions(options);
 		_beforePrint(options);
@@ -16457,10 +16619,19 @@ webix$1.NavigationButtons = {
 	/*common print actions */
 	function _print(view, options){
 		var doc = view.$view.cloneNode(true);
+
+		//copy data from all canvases
+		var canvases = view.$view.getElementsByTagName("canvas");
+		if(canvases.length)
+			{ for(var i = canvases.length-1; i >=0; i--){
+				var destCtx = doc.getElementsByTagName("canvas")[i].getContext('2d');
+				destCtx.drawImage(canvases[i], 0, 0);
+			} }
+
 		webix$1.html.insertBefore(doc, options.docFooter, document.body);
 
 		webix$1.html.addCss(doc,"webix_ui_print");
-		if(!options.scroll && ((view.data && view.data.pull) || view.getBody))
+		if(!options.scroll && ((view._dataobj && view.data && view.data.pull) || view.getBody))
 			{ webix$1.html.addCss(doc, "webix_print_noscroll"); }
 
 		window.print();
@@ -16692,7 +16863,12 @@ webix$1.protoUI({
 		this._onoff_scroll(count && count < value);
 		if (this._settings.autoheight && value < (count||Infinity) ) 
 			{ count = value; }
-		return Math.max(this._one_height() * count + (this.type.margin||0),this._settings.minHeight||0);
+		var height = this._one_height() * count + (this.type.margin||0);
+		//unitlist
+		if(this.getUnits)
+			{ height += this.getUnits().length*this.type.headerHeight; }
+
+		return Math.max(height,this._settings.minHeight||0);
 	},
 	_one_height:function(){
 		return this.type.height + (this.type.margin||0);
@@ -17449,7 +17625,7 @@ webix$1.EditAbility={
 			{ handler.call(this$1, this$1._editors[editor]); }
 	},
 	_editStop:function(editor, ignore){
-		if (!editor) { return; }
+		if (!editor || webix$1._final_destruction) { return; }
 		var state = { 
 			value : editor.getValue(), 
 			old : editor.value
@@ -17743,32 +17919,35 @@ webix$1.editors = {
 			return this.getPopup().getChildViews()[0];
 		},
 		getPopup:function(){
-			if (!this.config.popup)
-				{ this.config.popup = this.createPopup(); }
+			if (!this.config._popup)
+				{ this.config._popup = this.config.popup = this.createPopup(); }
 
 			return webix$1.$$(this.config.popup);
 		},
 		createPopup:function(){
 			var popup = this.config.popup || this.config.suggest;
-
 			if (popup){
 				var pobj;
 				if (typeof popup == "object" && !popup.name){
 					popup.view = popup.view || "suggest";
-					pobj = webix$1.ui(popup);
+					pobj = webix$1.ui(webix$1.copy(popup));
 				} else
 					{ pobj = webix$1.$$(popup); }
 
-				if (pobj.linkInput)
-					{ pobj.linkInput(document.body); }
-				else if(this.linkInput)
-					{ this.linkInput(document.body); }
+				//custom popup may be linked already
+				if(!pobj._linked){
+					if (pobj.linkInput)
+						{ pobj.linkInput(document.body); }
+					else if(this.linkInput)
+						{ this.linkInput(document.body); }
+					pobj._linked = true;
+				}
 
 				return pobj;
 			}
 
 			var type = webix$1.editors.$popup[this.popupType];
-			if (typeof type != "string"){
+			if (typeof type != "string" && !type.name){
 				type = webix$1.editors.$popup[this.popupType] = webix$1.ui(type);
 				this.popupInit(type);
 
@@ -17783,10 +17962,18 @@ webix$1.editors = {
 				var code = e.which || e.keyCode, list = this.getInputNode();
 				if(!list.isVisible()) { return; }
 
-				if(code === 40){
-					if(list.moveSelection)
-						{ list.moveSelection("down"); }
-					webix$1.UIManager.setFocus(list);
+				if(list.moveSelection && code < 41 && code > 32){
+					var dir;
+					if(code == 33) { dir = "pgup"; }
+					if(code == 34) { dir = "pgdown"; }
+					if(code == 35) { dir = "bottom"; }
+					if(code == 36) { dir = "top"; }
+					if(code == 37) { dir = "left"; }
+					if(code == 38) { dir = "up"; }
+					if(code == 39) { dir = "right"; }
+					if(code == 40) { dir = "down"; }
+
+					list.moveSelection(dir);
 				} 
 				// shift+enter support for 'popup' editor
 				else if(code === 13 && ( e.target.nodeName !=="TEXTAREA" || !e.shiftKey))
@@ -17806,7 +17993,7 @@ webix$1.editors.color = webix$1.extend({
 	focus	:function(){},
 	popupType:"color",
 	popupInit:function(popup){
-		popup.getChildViews()[0].attachEvent("onSelect", function(value){
+		popup.getChildViews()[0].attachEvent("onItemClick", function(value){
 			webix$1.callEvent("onEditEnd",[value]);
 		});
 	}
@@ -17864,7 +18051,7 @@ webix$1.editors.combo = webix$1.extend({
 		var popup = this.getPopup();
         var list = popup.getList();
 		var input = this.getInputNode();
-        var value = this.getValue();
+        var value = this._initial_value;
 
 		popup.show(input);
 		input.setAttribute("aria-expanded", "true");
@@ -17891,18 +18078,19 @@ webix$1.editors.combo = webix$1.extend({
 			if (data)
 				{ sobj.getList().data.importData(data); }
 
-			this._initial_text = this.getInputNode(this.node).value = sobj.getItemText(value);
+			this.getInputNode(this.node).value = sobj.getItemText(value);
 		}
 	},
 	getValue:function(){
 		var value = this.getInputNode().value;
-		
 		if (this.config.suggest){
-			if (value == this._initial_text)
-				{ return this._initial_value; }
-			return webix$1.$$(this.config.suggest).getSuggestion();
-		} else 
-			{ return value; }
+			var suggest = webix$1.$$(this.config.suggest),
+				list = suggest.getList();
+			if (value || (list.getSelectedId && list.getSelectedId()))	
+				{ value = suggest.getSuggestion(); }
+		}
+		
+		return value;
 	}
 }, webix$1.editors.text);
 
@@ -18446,6 +18634,10 @@ webix$1.protoUI({
 
 		this._last_set_size = 0;
 		this._last_scroll_pos = 0;
+	},
+	reset:function(){
+		this._last_scroll_pos = this.config.scrollPos = 0;
+		this._viewobj[this.config.scroll == "x"?"scrollLeft":"scrollTop"] = 0;
 	},
 	_check_quantum:function(value){
 		if (value>1500000){
@@ -19118,6 +19310,10 @@ webix$1.i18n.locales["en-US"]={
         underline: "Underline",
         bold: "Bold",
         italic: "Italic"
+    },
+    combo:{
+    	selectAll:"Select all",
+    	unselectAll:"Unselect all"
     }
 };
 webix$1.i18n.setLocale("en-US");
@@ -19229,6 +19425,7 @@ webix$1.protoUI({
 		this.$ready.push(this._first_render);
 
 		this._columns = [];
+		this._hidden_column_order = [];
 		this._headers = [];
 		this._footers = [];
 		this._rows_cache = [];
@@ -19245,6 +19442,13 @@ webix$1.protoUI({
 			this._restore_scroll_state();
 			this._refresh_any_header_content();
 		});
+		this.data.attachEvent("onClearAll", webix$1.bind(function(soft){
+			if (!soft){
+				this._scrollLeft = this._scrollTop = 0;
+				if (this._x_scroll) { this._x_scroll.reset(); }
+				if (this._y_scroll) { this._y_scroll.reset(); }
+			}
+		}, this));
 		this.attachEvent("onDestruct", this._clean_config_struct);
 		this.attachEvent("onKeyPress", this._onKeyPress);
 		this.attachEvent("onScrollY", this._adjust_rows);
@@ -19557,7 +19761,6 @@ webix$1.protoUI({
 			this$1._columns[i][collection] = data;
 		}
 
-
 		heights._summ = rows;
 		for (var i = rows-1; i >= 0; i--){
 			heights[i] = heights[i] || this$1._settings.headerRowHeight;
@@ -19628,9 +19831,9 @@ webix$1.protoUI({
 
 		var html = "<table role='presentation' style='width:"+width+"px' cellspacing='0' cellpadding='0'>";
 		for (var i = start; i < end; i++){
-			html += "<tr>";
+			html += "<tr class='webix_size_row'>";
 			for (var i = start; i < end; i++)
-				{ html += "<th  style='width:"+this$1._columns[i].width+"px'></th>"; }
+				{ html += "<td style='width:"+this$1._columns[i].width+"px;'></td>"; }
 			html += "</tr>";
 		}
 
@@ -20261,6 +20464,10 @@ webix$1.protoUI({
 
 		if (full) { return [start, end, 0]; }
 		var xind = start;
+		var topSplit = this._settings.topSplit || 0;
+		if (topSplit)
+			{ xind += topSplit; }
+
 		var rowHeight = this._settings.fixedRowHeight?this._settings.rowHeight:0;
 		if (rowHeight){
 			var dep = Math.ceil(t/rowHeight);
@@ -20272,18 +20479,12 @@ webix$1.protoUI({
 				xind++;
 			} }
 
-		var topSplit = this._settings.topSplit;
-		if (topSplit)
-			{ xind += topSplit; }
-
 		//how much of the first cell is scrolled out
 		var xdef = (xind>0 && t)?-(this._getHeightByIndex(xind-1)+t):0;
 		var xend = xind;
 		if (t) { xind--; }
 
 		t+=(this._dtable_offset_height||this._content_height) - (this._top_split_height||0);
-
-
 
 		if (rowHeight){
 			var dep = Math.ceil(t/rowHeight);
@@ -20308,8 +20509,16 @@ webix$1.protoUI({
 		var rowindex = this.getIndexById(id);
 
 		var state = this._get_y_range();
-		//row not visible
-		if (rowindex < state[0] || rowindex >= state[1]) { return; }
+		var freeze = this.config.topSplit;
+		var freezeCss = "";
+
+		if (rowindex >= freeze){
+			//row not visible
+			if (rowindex < state[0] || rowindex >= state[1]) { return; }
+			rowindex -= state[0]-freeze;
+		} else {
+			freezeCss = (rowindex == freeze-1) ? " webix_topcell webix_last_topcell" : " webix_topcell";
+		}
 
 		//get visible column
 		var x_range = this._get_x_range();
@@ -20321,11 +20530,11 @@ webix$1.protoUI({
 				{ column._yr0 = -999; } //ensure that column will not be reused
 
 			if (column.attached && column.node){
-				var node =  column.node.childNodes[rowindex-state[0]];
+				var node =  column.node.childNodes[rowindex];
 				var value = this$1._getValue(item, this$1._columns[i], 0);
 
 				node.innerHTML = value;
-				node.className = this$1._getCss(this$1._columns[i], value, item, id);
+				node.className = this$1._getCss(this$1._columns[i], value, item, id) + freezeCss;
 			}
 		}
 	},
@@ -20382,9 +20591,18 @@ webix$1.protoUI({
 
 		if (this._rows_body)
 			{ this._rows_body.style.top = this._render_scroll_shift+"px"; }
-
-		if (!force && start == this._rows_cache_start && end == this._rows_cache_end)
-			{ return; }
+		
+		if (!force && start == this._rows_cache_start && end == this._rows_cache_end){
+			if(this.config.topSplit){ //don't move split rows
+				for (var i=0; i<this._render_full_rows.length; i++){
+					var row = this$1._rows_cache[i];
+					if(this$1._render_full_rows[i].index<this$1.config.topSplit){
+						row.style.top = this$1._render_full_rows[i].top-this$1._render_scroll_shift+"px";
+					}
+				}
+			}
+			return;
+		}
 
 		this._delete_full_rows(start, end);
 
@@ -20404,7 +20622,7 @@ webix$1.protoUI({
 			}
 
 			var row = this$1._rows_cache[i] = webix$1.html.create("DIV", null , value);
-			row.className = "webix_cell "+(item.$sub ? ("webix_dtable_sub"+(this$1._settings.subview?"view":"row")) : "webix_dtable_colrow");
+			row.className = "webix_cell "+(item.$sub ? ("webix_dtable_sub"+(this$1._settings.subview?"view":"row")) : "webix_dtable_colrow"+(item.$row?" webix_topcell":""));
 			row.setAttribute("column", 0);
 			row.setAttribute("row", info.index);
 
@@ -20413,9 +20631,10 @@ webix$1.protoUI({
 				{ row.style.height = item.$subHeight+"px"; }
 			else 
 				{ row.style.height = height +"px"; }
-
 			row.style.paddingRight = webix$1.ui.scrollSize+"px";
-			row.style.top =  info.top + (item.$subopen ? height-1 : -1) + "px";
+
+			var topDelta = (this$1._render_full_rows[i].index<this$1.config.topSplit) ? -this$1._render_scroll_shift : 0;
+			row.style.top = topDelta + info.top + (item.$subopen ? height-1 : 0) + "px";
 
 			if (!this$1._rows_body){
 				this$1._rows_body = webix$1.html.create("DIV");
@@ -20685,7 +20904,6 @@ webix$1.protoUI({
 		var item = this.data.getItem(id);
 		var html = "";
 
-		
 		var value;
 		if (item){
 			var aria = " role='gridcell' aria-rowindex='"+(i+1)+"' aria-colindex='"+(this.getColumnIndex(config.id)+1)+"'"+
@@ -20696,8 +20914,9 @@ webix$1.protoUI({
 				this._render_full_row_some = true;
 				this._render_full_rows.push({ top:state.total, id:item.id, index:i});
 				if (!item.$sub){
-					state.total += state.row;
-					return "<div"+aria+" class='webix_cell'></div>";
+					var rowHeight = (item.$height || state.row);
+					state.total += rowHeight;
+					return "<div"+aria+" class='webix_cell' style='height:"+rowHeight+"px;'></div>";
 				}
 			}
 			var value = this._getValue(item, config, i);
@@ -20705,7 +20924,8 @@ webix$1.protoUI({
 			
 			if(css.indexOf("select") !==-1 ) { aria += " aria-selected='true' tabindex='0'"; }
 			
-			var margin = item.$subopen ? "margin-bottom:"+item.$subHeight+"px;" : "";
+			var isOpen = !!item.$subopen;
+			var margin = isOpen ? "margin-bottom:"+item.$subHeight+"px;" : "";
 
 			if (top>=0){
 				if (top>0) { margin+="top:"+top+"px;'"; }
@@ -20720,7 +20940,7 @@ webix$1.protoUI({
 				html = "<div"+aria+" class='"+css+"'"+(margin?" style='"+margin+"'":"")+">"+value+"</div>";
 			}
 
-			if (margin)
+			if (isOpen)
 				{ state.total += item.$subHeight; }
 
 		} else {
@@ -20746,7 +20966,7 @@ webix$1.protoUI({
 		this._y_scroll.sizeTo(this._content_height, this._header_height, this._footer_height);
 		this._y_scroll.define("scrollHeight", wanted_height);
 
-		this._top_split_height = this._settings.topSplit * this._settings.rowHeight;
+		this._top_split_height = this._settings.topSplit ? this._getHeightByIndexSumm(0, this._settings.topSplit) : 0;
 		this._dtable_offset_height =  Math.max(0,this._content_height-this._scrollSizeX-this._header_height-this._footer_height);
 		for (var i = 0; i < 3; i++){
 
@@ -21079,7 +21299,7 @@ webix$1.protoUI({
 		var test = this.getItem(this.getFirstId());
 		var res = this._settings.columns = [];
 		for (var key in test)
-			{ if (key != "id")
+			{ if (key != "id" && key[0] != "$")
 				{ res.push({ id:key, header:key[0].toUpperCase()+key.substr(1), sort:"string", editor:"text" }); } }
 		if (res.length)
 			{ res[0].fillspace = true; }
@@ -22006,12 +22226,11 @@ webix$1.extend(webix$1.ui.datatable, {
 						for (var j = sind; j <= eind; j++) {
 							var cid = this$1._columns[j].id;
 							if (callback)
-								{ callback((item[cid] || ""), rid, cid, i-srow, j-sind); }
+								{ item[cid] = callback((item[cid] || ""), rid, cid, i-srow, j-sind); }
 							else
 								{ return { row:rid, column:cid }; }
 						}
 					}
-
 				}
 			},
 			select:function(row_id, column_id, preserve){
@@ -22874,7 +23093,7 @@ webix$1.DataState = {
 				for (var i=0; i<this._hidden_column_order.length; i++){
 					var hikey = this$1._hidden_column_order[i];
 					if (!!hihash[hikey] == !this$1._hidden_column_hash[hikey])
-						{ this$1.hideColumn(hikey, !!hihash[hikey]); }
+						{ this$1.hideColumn(hikey, {}, false, !!hihash[hikey]); }
 				}
 			}
 		}
@@ -23809,16 +24028,32 @@ webix$1.extend(webix$1.ui.datatable, {
 			if (container)
 				{ webix$1.html.remove(container); }
 		} else {
-			var heightsArr = new Array(this.data.count()).join('0').split('');
+			//set size of array based on data size
+			//can be not-reliable for tree-like components anyway
+			var heightsArr = new Array(this.data.order.length);
 			var cols = this.config.columns;
 
+			//set 0 as initial height
+			var j = 0;
+			//iterate through all possible items
+			//we need to be sure that heightsArr is not lesser than real data count
+			for (var key in this$1.data.pull){
+				heightsArr[j] = 0;
+				j++;
+			}
+
 			for (var i = 0; i < cols.length; i++) {
+				//adjust size for single columns
 				this$1.adjustRowHeight(cols[i].id, true);
+				//for each row, set height as maximum between all columns
+				var j = 0;
 				this$1.data.each(function(obj, index){
-					if (obj.$height > heightsArr[index]) {
-						heightsArr[index] = obj.$height;
+					//index is not reliable for tree-components, using a custom counter
+					if (obj.$height > heightsArr[j]) {
+						heightsArr[j] = obj.$height;
 					}
-					obj.$height = heightsArr[index];
+					obj.$height = heightsArr[j];
+					j++;
 				});
 			}
 		}
@@ -24104,7 +24339,7 @@ webix$1.extend(webix$1.ui.datatable,{
 		try {
 			webix$1.temp_value = '';
 			expr = 'webix.temp_value = ' + expr;
-			eval(expr);
+			evilCall(expr);
 		} catch(ex) {
 			webix$1.assert(false,"Math error in datatable<br>"+expr);
 			webix$1.temp_value = '';
@@ -24408,9 +24643,13 @@ webix$1.extend(webix$1.ui.datatable, {
 			//if we have focus in some custom input inside of datatable
 			if (e.target && e.target.tagName == "INPUT") { return true; }
 
+			//init editor related to a single selected row/column/cell
 			var selection = this.getSelectedId(true);
 			if (selection.length == 1){
-				this.editNext(tab, selection[0]);
+				var sel =  selection[0];
+				if(this._settings.select == "row")
+					{ sel.column = this._settings.columns[e.shiftKey?0:this._settings.columns.length-1].id; }
+				this.editNext(tab, sel);
 				return false;
 			}
 		}
@@ -24520,13 +24759,16 @@ webix$1.extend(webix$1.ui.datatable, {
 
 		var cols = this._columns;
 
-		for (var i = cols.length-1; i>=0; i--){
+		for(var i = 0; i<cols.length; i++){
 			if(cols[i].header) { this$1._getInitialSpans(cols, cols[i].header); }
 			if(cols[i].footer) { this$1._getInitialSpans(cols, cols[i].footer); }
+		}
+
+		for (var i = cols.length-1; i>=0; i--){
 			if (cols[i].hidden)
-				{ this$1.hideColumn(cols[i].id, true, true); }
+				{ this$1.hideColumn(cols[i].id, {}, true, true); }
 			else if (cols[i].batch && this$1.config.visibleBatch && cols[i].batch!=this$1.config.visibleBatch){
-				this$1.hideColumn(cols[i].id, true, true);
+				this$1.hideColumn(cols[i].id, {}, true, true);
 			}
 		}
 	},
@@ -24563,7 +24805,7 @@ webix$1.extend(webix$1.ui.datatable, {
 	isColumnVisible:function(id){
 		return !this._hidden_column_hash[id];
 	},
-	hideColumn:function(id, mode, silent){
+	hideColumn:function(id, opts, silent, mode){
 		var this$1 = this;
 
 		var cols = this._settings.columns;
@@ -24571,6 +24813,7 @@ webix$1.extend(webix$1.ui.datatable, {
 		var hhash = this._hidden_column_hash;
 		var column;
 		var span = 1;
+		opts = opts || {};
 
 		if (mode!==false){
 			
@@ -24582,9 +24825,16 @@ webix$1.extend(webix$1.ui.datatable, {
 			if (index == -1) { return; }
 
 			this._init_horder();
-			var header = cols[index].header[0];
-			if (header)
-				{ header.$groupSpan = span = (header.colspan || 1); }
+			
+			if(opts.spans){
+				var header = cols[index].header;
+				for(var i  = 0; i<header.length; i++){
+					if(header[i]){
+						header[i].$groupSpan = header[i].colspan || 1;
+						span = Math.max(span, header[i].$groupSpan);
+					}
+				}
+			}
 
 			if (index<this._settings.leftSplit)
 				{ this._settings.leftSplit-=span; }
@@ -24592,6 +24842,7 @@ webix$1.extend(webix$1.ui.datatable, {
 				{ this._settings.rightSplit-=span; }
 			else 
 				{ this._rightSplit-=span; }
+
 			for (var i=index+span-1; i>=index; i--){
 				this$1._hideColumn(index);
 				column  = cols.splice(index, 1)[0];
@@ -24621,35 +24872,44 @@ webix$1.extend(webix$1.ui.datatable, {
 			}
 
 			var index = prev?this.getColumnIndex(prev)+1:0;
-			var header = column.header[0];
-			if (header){
-				header.colspan = header.$groupSpan || header.colspan;
-				delete header.$groupSpan;
-				span = (header.colspan || 1);
-			}
 			
+			if(opts.spans){
+				var header = column.header;
+				for(var i  = 0; i<header.length; i++){
+					if(header[i]){
+						header[i].colspan = header[i].$groupSpan || header[i].colspan;
+						delete header[i].$groupSpan;
+						span = Math.max(span, (header[i].colspan || 1));
+					}
+				}
+			}
 
-			if (i<this._hidden_split[0])
+			for (var i=hindex+span-1; i>=hindex; i--){
+				var column = hhash[horder[i]];
+				if(column){ //can be already shown by another action
+					webix$1.PowerArray.insertAt.call(cols, column, index);
+					delete column.hidden;
+					delete hhash[column.id];
+					this$1._columns_pull[column.id] = column;
+				}
+				else
+					{ span--; }
+			}
+
+			if (hindex<this._hidden_split[0])
 				{ this._settings.leftSplit+=span; }
-			if (i>=this._hidden_split[1])	
+			if (hindex>=this._hidden_split[1])	
 				{ this._settings.rightSplit+=span; }
 			else
 				{ this._rightSplit+=span; }
 
-			for (var i=hindex+span-1; i>=hindex; i--){
-				var column = hhash[horder[i]];
-				webix$1.PowerArray.insertAt.call(cols, column, index);
-				delete column.hidden;		
-				delete hhash[column.id];
-				this$1._columns_pull[column.id] = column;
-			}
 
 			this.callEvent("onAfterColumnShow", [id]);
 		}
-		if (span === 1){
-			if(column.header) { this._fixColspansHidden(column, mode !== false ? 0 : 1, "header"); }
-			if(column.footer) { this._fixColspansHidden(column, mode !== false ? 0 : 1, "footer"); }
-		}
+
+		if(column.header) { this._fixColspansHidden(column, mode !== false ? 0 : 1, "header"); }
+		if(column.footer) { this._fixColspansHidden(column, mode !== false ? 0 : 1, "footer"); }
+
 		if (!silent)
 			{ this._refresh_columns(); }
 	},
@@ -24678,7 +24938,7 @@ webix$1.extend(webix$1.ui.datatable, {
 					//visible column
 					if (isHidden && spanSize > 0 && spanSource && spanSource.colspan > 0){
 						//bit start of colspan is hidden
-						el = config.el[i] = spanSource;
+						el = config[elName][i] = spanSource;
 						spanSource = el;
 					} else if (el && el.$colspan && spanSize <= 0){
 						//visible start of colspan
@@ -24732,8 +24992,8 @@ webix$1.extend(webix$1.ui.datatable, {
 		this._apply_headers();
 		this.render();
 	},
-	showColumn:function(id){
-		return this.hideColumn(id, false);
+	showColumn:function(id, opts, silent){
+		return this.hideColumn(id, opts, silent, false);
 	},
 	showColumnBatch:function(batch, mode){
 		var preserve = typeof mode != "undefined";
@@ -24745,9 +25005,9 @@ webix$1.extend(webix$1.ui.datatable, {
 				if (!mode) { hidden = !hidden; }
 
 				if(col.batch == batch && hidden)
-					{ this.hideColumn(col.id, !mode, true); }
+					{ this.hideColumn(col.id, { spans:true }, true,!mode); }
 				else if(!preserve && col.batch!=batch && !hidden)
-					{ this.hideColumn(col.id, mode, true); }
+					{ this.hideColumn(col.id, { spans:true }, true, mode); }
 			}
 		}, true);
 
@@ -24778,13 +25038,14 @@ webix$1.extend(webix$1.ui.datatable, {
 		}
 		return null;
 	},
-	moveSelection:function(mode, shift){
+	moveSelection:function(mode, details, focus){
 		if(this._settings.disabled) { return; }
+		details = details || {};
 		
 		//get existing selection as array
 		var t = this.getSelectedId(true);
 		var index = t.length-1;
-		var preserve = this._settings.multiselect || this._settings.areaselect ? shift : false;
+		var preserve = this._settings.multiselect || this._settings.areaselect ? details.shift : false;
 
 		//change defaults in case of multiselection
 		if(t.length>1 && this._settings.select !=="cell"){
@@ -24877,12 +25138,12 @@ webix$1.extend(webix$1.ui.datatable, {
 
 				if(preserve && this._settings.select == "area"){
 					var last = this._selected_areas[this._selected_areas.length-1];
-					this._extendAreaRange(cell, last, mode);
+					this._extendAreaRange(cell, last, mode, details);
 				}
 				else
 					{ this._select(cell, preserve); }
 
-				if(!this._settings.clipboard){
+				if(!this._settings.clipboard && focus !==false){
 					var node = this.getItemNode(cell);
 					if(node) { node.focus(); }
 				}
@@ -24942,17 +25203,25 @@ webix$1.extend(webix$1.ui.datatable, {
 		return html+"</div>";
 	},
 	getHeaderNode:function(column_id, row_index){
+		return this._getHeaderNode(column_id, row_index, this._header);
+	},
+	getFooterNode:function(column_id, row_index){
+		return this._getHeaderNode(column_id, row_index, this._footer);
+	},
+	_getHeaderNode:function(column_id, row_index, group){
 		if(this.isColumnVisible(column_id)){
 
 			var ind = this.getColumnIndex(column_id);
 			var hind = this._settings.leftSplit > ind ? 0 : (this._rightSplit <=ind ? 2 :1 );
 			row_index = row_index || 0;
 			
-			var nodes = this._header.childNodes[hind].getElementsByTagName("TR")[row_index+1].childNodes;
-			for (var i=0; i<nodes.length; i++)
+			var rows = group.childNodes[hind].getElementsByTagName("TR");
+			if(rows.length){
+				var nodes = rows[row_index+1].childNodes;
+				for (var i=0; i<nodes.length; i++)
 				{ if (nodes[i].getAttribute("column") == ind)
 					{ return nodes[i].firstChild; } }
-				
+			}
 		}
 		return null;
 	},
@@ -25952,7 +26221,8 @@ webix$1.extend(webix$1.ui.datatable, {
 					}
 					
 					var hcell = {
-						txt:header.text || (header.contentId?this$1.getHeaderContent(header.contentId).getValue():""),
+						txt: header.rotate ? this$1.getHeaderNode(column.id, h).innerHTML:
+							(header.text || (header.contentId?this$1.getHeaderContent(header.contentId).getValue():"")),
 						className:"webix_hcell "+"webix_"+group+"_cell "+(header.css || ""),
 						style:{
 							height:(header.height || this$1.config.headerRowHeight)+"px",
@@ -26023,7 +26293,7 @@ webix$1.extend(webix$1.ui.datatable, {
 						}
 							
 						if(!span  || (span && span[0] == row && span[1] == column)){
-							var cellValue = span && span[4] ? span[4] : (rowItem[column] ? this$1.getText(row, column) : "");
+							var cellValue = span && span[4] ? span[4] : (this$1._columns_pull[column] ? this$1.getText(row, column) : "");
 							var className = this$1.getCss(row, column)+" "+(columns[c].css || "")+(span? (" webix_dtable_span "+ (span[5] || "")):"" );
 							
 							var style  = {
@@ -26075,10 +26345,11 @@ webix$1.extend(webix$1.ui.datatable, {
 		if(newTableStart) 
 			{ this._getTableArray(options, base, newTableStart); }
 		else{
-			if(options.header)
-				{ base = this._getTableHeader(base, columns, "header"); }
+			//keep this order as logic relies on the first data row
 			if(options.footer)
 				{ base = this._getTableHeader(base, columns, "footer"); }
+			if(options.header)
+				{ base = this._getTableHeader(base, columns, "header"); }
 		}
 
 		return base;
@@ -26131,6 +26402,173 @@ webix$1.extend(webix$1.ui.datatable, {
 });
 
 webix$1.extend(webix$1.ui.datatable, webix$1.CustomPrint);
+webix$1.extend(webix$1.ui.datatable, {
+	$exportView:function(options){
+		if(options.export_mode !=="excel" || options.dataOnly || !options.styles)
+			{ return this; }
+		else{ //excel export with styles
+			options.dataOnly = true;
+			options.heights = webix$1.isUndefined(options.heights)?"all":options.heights;
+
+			var data = webix$1.toExcel(this, options);
+			data[0].styles = this._getExportStyles(options);
+
+			delete options.dataOnly;
+			return data;
+		}
+	},
+	_getExportStyles:function(options){
+		var columns = this.config.columns, styles = [];
+		this._style_hash = this._style_hash || {};
+		
+		if(options.docHeader)
+			{ styles = [{ 0:this._getExportDocStyle(options.docHeader.css)},{ 0:{}}]; }
+		if(options.header!==false)
+			{ styles = this._getExportHStyles(options, "header", styles); }
+		
+		this.data.each(function(obj){
+			var this$1 = this;
+
+			var row = {};
+			for(var i = 0; i<columns.length; i++){
+				var cellCss = this$1.getCss(obj.id, columns[i].id);
+				var columnCss = columns[i].node.className;
+				var spanCss = "";
+				var span = null;
+				var node = null;
+
+				if(this$1._spans_pull && (span = this$1.getSpan(obj.id, columns[i].id))){
+					node  = this$1.getSpanNode({row:span[0], column:span[1]});
+					spanCss = "webix_dtable_span "+(span[5] || "");
+				}
+				else
+					{ node = this$1.getItemNode({row:obj.id, column:columns[i].id}); }
+
+				if(!node){
+					node = webix$1.html.create("div", {
+						class:cellCss, style:"visibility:hidden"
+					});
+					var cnode = columns[i].node;
+					if(!columns[i].attached){
+						cnode = webix$1.html.create("div", {
+							class:columnCss, style:"visibility:hidden"
+						});
+						this$1._body.appendChild(cnode);
+					}
+					cnode.appendChild(node);
+				}
+				row[i] = this$1._getExportCellStyle(node, [cellCss, columnCss, spanCss].join(":"));
+			}
+			styles[styles.length] = row;
+		}, this);
+
+		if(options.footer!==false && this.config.footer)
+			{ styles = this._getExportHStyles(options, "footer", styles); }
+		if(options.docFooter)
+			{ styles = styles.concat([{ 0:{}},{ 0:this._getExportDocStyle(options.docFooter.css)}]); }
+		
+		return styles;
+	},
+	_getExportHStyles:function(options, group, styles){
+		var this$1 = this;
+
+		var columns = this.config.columns, hs = [];//spans
+
+		for(var h = 0; h<columns[0][group].length; h++){
+			var hrow = {};
+			for(var i = 0; i<columns.length; i++){
+				var header = columns[i][group][h];
+				//ToDo:make sure it is rendered and attached
+				if(header){ //can be null
+					var cid = header.colspan ? columns[i+header.colspan-1].id : columns[i].id;
+					var node = (group == "header"?this$1.getHeaderNode(cid, h):this$1.getFooterNode(cid, h));
+					if(node){
+						var name = [node.parentNode.className, (header.css||""), "webix_hcell", group];
+						hrow[i] = this$1._getExportCellStyle(node, name.join(":"));
+
+						if(header.colspan || header.rowspan)
+							{ hs.push([h, i, {colspan:header.colspan-1 || 0, rowspan:header.rowspan-1||0}, hrow[i]]); }
+					}
+				}
+				else{
+					for(var s = 0; s<hs.length; s++){
+						var st = hs[s][2], hsc = hs[s][1], hsr = hs[s][0];
+						if(hsc+st.colspan >= i && hsr+st.rowspan>=h)
+							{ hrow[i] = hs[s][3]; }
+					}
+				}
+			}
+			styles[styles.length] = hrow;
+		} 
+		return styles;
+	},
+	_getExportCellStyle:function(node, name){
+		if(this._style_hash[name]) 
+			{ return  this._style_hash[name]; }
+		else{
+			var base = this._getRules(node);
+			var rules = { font:{},alignment:{},border:{}};
+
+			//font
+			rules.font.name = base["font-family"].replace(/,.*$/, ""); // cut off fallback font;
+			rules.font.sz = base["font-size"].replace("px", "")*0.75; //px to pt conversion
+			rules.font.color = {rgb:webix$1.color.rgbToHex(base["color"])};
+			if(base["font-weight"] !== "normal") { rules.font.bold = true; }
+			if(base["text-decoration-line"] === "underline") { rules.font.underline = true; }
+			if(base["font-style"] === "italic") { rules.font.italic = true; }
+			if(base["text-decoration-line"] === "line-through") { rules.font.strike = true; }
+			
+			//alignment
+			rules.alignment.horizontal = base["text-align"];
+			rules.alignment.vertical = base["height"] == base["line-height"]?"center":"top";
+			if(base["white-space"] == "normal") { rules.alignment.wrapText = true; }
+			//rotated header
+			if(node.firstChild && node.firstChild.className && node.firstChild.className.indexOf("webix_rotate")!==-1)
+				{ rules.alignment.textRotation = 90; }
+
+			//background
+			var bg = webix$1.color.rgbToHex(base["background-color"]);
+			if(bg) { rules.fill = {fgColor:{rgb:bg}}; }
+			if(base["background-image"].indexOf("gradient")!==-1) //air skins use gradient for header
+				{ rules.fill = {fgColor: {rgb:webix$1.color.rgbToHex(base["background-image"].substring(base["background-image"].lastIndexOf("(")))}}; }
+			
+			//borders
+			if(node.parentNode && node.parentNode.nodeName =="TD") //borders for header are set for parent td, so we change base rules here
+				{ base = this._getRules(node.parentNode); }
+			if(base["border-right-width"]!=="0px")
+				{ rules.border.right = { style:"thin", color:{rgb:webix$1.color.rgbToHex(base["border-right-color"])}}; }
+			if(base["border-bottom-width"]!=="0px")
+				{ rules.border.bottom = { style:"thin", color:{rgb:webix$1.color.rgbToHex(base["border-bottom-color"])}}; }
+			if(base["border-left-width"]!=="0px")
+				{ rules.border.left = { style:"thin", color:{rgb:webix$1.color.rgbToHex(base["border-left-color"])}}; }
+			if(base["border-top-width"]!=="0px")
+				{ rules.border.top = { style:"thin", color:{rgb:webix$1.color.rgbToHex(base["border-top-color"])}}; }
+			
+			this._style_hash[name] = rules;
+			return rules;
+		}
+	},
+	_getExportDocStyle:function(css){
+		css = webix$1.extend(css||{}, {visibility:"hidden", "white-space":"nowrap", "text-align":"left"});
+		var cssStr = "";
+		for(var i in css) { cssStr += (i+":"+css[i]+";"); }
+		
+		var node = webix$1.html.create("div", {style:cssStr});
+		this._body.appendChild(node);
+		var style = this._getExportCellStyle(node, cssStr);
+		webix$1.html.remove(node);
+
+		return style;
+	},
+	_getRules:function(node){
+		var style = {};
+		if(window.getComputedStyle)
+			{ style = window.getComputedStyle(node); }
+		else
+			{ style = node.currentStyle; }
+		return style;
+	}
+});
 
 
 
@@ -26392,6 +26830,21 @@ webix$1.color = {
 				{ str = "0"+str; }
 		return str;
 	},
+	rgbToHex:function(rgb){
+		var arr=[];
+		if(typeof(rgb) === "string")
+			{ rgb.replace(/[\d+\.]+/g, function(v){ 
+				arr.push(parseFloat(v));
+			}); }
+		else if(webix$1.isArray(rgb))  { arr = rgb; }
+		
+		//transparent
+		if(arr[3] === 0) { return ""; }
+
+	    return arr.slice(0, 3).map(function(n){
+	    	return webix$1.color.toHex(Math.floor(n), 2);
+	    }).join("");
+	},
 	hexToDec:function(hex){
 		return parseInt(hex, 16);
 	},
@@ -26531,8 +26984,23 @@ webix$1.HtmlMap = webix$1.proto({
 	hide:function(obj, data, mode){
 		if (obj.querySelectorAll){
 			var nodes = obj.querySelectorAll("area[userdata=\""+data+"\"]");
-			for (var i = 0; i < nodes.length; i++)
-				{ nodes[i].style.display = mode?"none":""; }
+			for (var i = 0; i < nodes.length; i++){
+				var nod = nodes[i];
+				if (mode){
+					if (nod.getAttribute("coords")){
+						nod.coordsdis = nod.getAttribute("coords");
+						nod.setAttribute("coords", "");
+						nod.coords = "";
+					}
+				} else if (!mode){
+					if (nod.coordsdis){
+						nod.setAttribute("coords", nod.coordsdis);
+						nod.coords = nod.coordsdis;
+						nod.coordsdis = "";
+					}
+				}
+				nodes[i].style.display = mode?"none":"";
+			}
 		}
 	},
 	render:function(obj){
@@ -27131,6 +27599,13 @@ webix$1.protoUI({
 		var endPower = Math.ceil(this._log10(nmax));
 		return {start: startPower, step: 1, end: endPower};
 	},
+	_normStep:function(step){
+		var power = Math.floor(this._log10(step));
+		var calculStep = Math.pow(10,power);
+		var stepVal = step/calculStep;
+		stepVal = (stepVal>5?10:5);
+		return parseInt(stepVal,10)*calculStep;	
+	},
 	_calculateScale:function(nmin,nmax){
 		this._logScaleCalc = false;
 		if(this._settings.scale == "logarithmic"){
@@ -27145,12 +27620,7 @@ webix$1.protoUI({
 	    if(this._settings.origin!="auto"&&this._settings.origin<nmin)
 			{ nmin = this._settings.origin; }
 		var step,start,end;
-	   	step = ((nmax-nmin)/8)||1;
-		var power = Math.floor(this._log10(step));
-		var calculStep = Math.pow(10,power);
-		var stepVal = step/calculStep;
-		stepVal = (stepVal>5?10:5);
-		step = parseInt(stepVal,10)*calculStep;
+	   	step = this._normStep(((nmax-nmin)/8)||1);
 
 		if(step>Math.abs(nmin))
 			{ start = (nmin<0?-step:0); }
@@ -27167,11 +27637,15 @@ webix$1.protoUI({
 			if(nmin<0) { start =-start-2*step; }
 			
 		}
-	     end = start;
+		if ((nmax-start) > 10)
+			{ step = this._normStep(((nmax-start)/8)||1); }
+	    end = start;
 		while(end<nmax){
 			end += step;
 			end = parseFloat((end*1.0).toFixed(Math.abs(power)));
 		}
+
+		var power = Math.floor(this._log10(step));
 		return { start:start,end:end,step:step,fixNum:power<0?Math.abs(power):0 };
 	},
 	_getLimits:function(orientation,value){
@@ -27264,7 +27738,7 @@ webix$1.protoUI({
 	    if(!tag.getAttribute("userdata"))
 	        { return; }
 
-	    this._active_serie = this._series.length==1?tag.getAttribute("userdata"):this._getActiveSeries(e);
+	    this._active_serie = this._series.length==1?this._getActiveSeries(e):tag.getAttribute("userdata");
 	    if (!this._series[this._active_serie]) { return; }
 	    for (var i=0; i < this._series.length; i++) {
 		    tip = this$1._series[i].tooltip;
@@ -27590,7 +28064,7 @@ webix$1.protoUI({
 				data[i].$sum = 0 ;
 				data[i].$min = Infinity;
 				for(j =0; j < this._series.length;j++){
-					value = parseFloat(this$1._series[j].value(data[i])||0);
+					value = Math.abs(parseFloat(this$1._series[j].value(data[i])||0));
 					if(isNaN(value)) { continue; }
 					if(this$1._series[j].type.toLowerCase().indexOf("stacked")!=-1)
 						{ data[i].$sum += value; }
@@ -27796,7 +28270,7 @@ webix$1.extend(webix$1.ui.chart, {
 
 		var v = [];
 		for(var i = 0; i < data.length;i++)
-			{ v.push(parseFloat(this$1._settings.value(data[i])||0)); }
+			{ v.push(Math.abs(parseFloat(this$1._settings.value(data[i])||0))); }
 		return v;
 	},
 	/**
@@ -28976,7 +29450,7 @@ webix$1.extend(webix$1.ui.chart, {
 		}
 
 		for(var i=0; i < data.length;i ++){
-			var value =  parseFloat(config.value(data[i]||0));
+			var value =  Math.abs(parseFloat(config.value(data[i]||0)));
 
 			if(this$1._logScaleCalc)
 				{ value = this$1._log10(value); }
@@ -29184,7 +29658,7 @@ webix$1.extend(webix$1.ui.chart, {
 			if(!seriesIndex)
 				{ data[i].$startX = point0.x; }
 
-			var value =  parseFloat(this$1._settings.value(data[i]||0));
+			var value =  Math.abs(parseFloat(this$1._settings.value(data[i]||0)));
 			if(value>maxValue) { value = maxValue; }
 			value -= minValue;
 			value *= valueFactor;
@@ -30529,18 +31003,20 @@ webix$1.protoUI({
 		}
 		return webix$1.ui.view.prototype.$getSize.call(this, dx,dy);
 	},
-	moveSelection:function(mode){
+	moveSelection:function(mode, details, focus){
 		if(this.config.master) { return; } //in daterange
 
 		var date = webix$1.Date.copy(this.getSelectedDate() || this.getVisibleDate());
-		this._moveSelection(date, mode);
+		this._moveSelection(date, mode, focus);
 		
 	},
-	_moveSelection:function(date, mode){
+	_moveSelection:function(date, mode, focus){
 		var css = this._zoom_logic[this._zoom_level]._keyshift(date, mode, this);
-
-		var sel = this._viewobj.querySelector("."+css+"[tabindex='0']");
-		if(sel) { sel.focus(); }
+		
+		if(focus !==false){
+			var sel = this._viewobj.querySelector("."+css+"[tabindex='0']");
+			if(sel) { sel.focus(); }
+		}
 	},
 	_getDateBoundaries: function(date, reset) {
 		// addition information about rendering event:
@@ -31701,7 +32177,7 @@ webix$1.protoUI({
 	},
 	_findIndex:function(value){
 		var pal = this._settings.palette;
-		value = value.toUpperCase();
+		value = (value || "").toUpperCase();
 		for(var r= 0, rows= pal.length; r < rows; r++)
 			{ for(var c= 0, cols = pal[r].length; c < cols; c++){
 				if(pal[r][c].toUpperCase() == value){
@@ -31860,7 +32336,7 @@ webix$1.protoUI({
 
 		this._settings.palette = colors;
 	},
-	moveSelection:function(mode){
+	moveSelection:function(mode, details, focus){
 		var value = this.getValue(), ind, cell;
 
 		if(value) { ind = this._findIndex(value); }
@@ -31885,9 +32361,10 @@ webix$1.protoUI({
 				this.setValue(value);
 				this.callEvent("onSelect", [this._settings.value]);
 
-
-				var sel = this._viewobj.querySelector("div[tabindex='0']");
-				if(sel)  { sel.focus(); }
+				if(focus !==false){
+					var sel = this._viewobj.querySelector("div[tabindex='0']");
+					if(sel)  { sel.focus(); }
+				}
 			}
 		}
 	},
@@ -32401,6 +32878,7 @@ webix$1.protoUI({
 	$getSize:function(dx, dy){
 		var this$1 = this;
 
+		if (!this._cells.length) { return webix$1.ui.baseview.prototype.$getSize.call(this, 0, 0); }
 		webix$1.debug_size_box_start(this, true);
 		var size = this._cells[this._active_cell].$getSize(0, 0);
 		if (this._settings.fitBiggest){
@@ -32429,6 +32907,7 @@ webix$1.protoUI({
 		return self_size;
 	},
 	$setSize:function(x,y){
+		if (!this._cells.length) { return; }
 		this._layout_sizes = [x,y];
 		webix$1.ui.baseview.prototype.$setSize.call(this,x,y);
 		this._cells[this._active_cell].$setSize(x,y);
@@ -32513,9 +32992,9 @@ webix$1.protoUI({
 			this._hide_sub_menu();
 		},this));
 		this.attachEvent('onMouseMove', this._mouse_move_menu);
-		this.attachEvent('onMouseOut',function(){
+		this.attachEvent('onMouseOut',function(e){
 			if (this._menu_was_activated() && this._settings.openAction == "click") { return; }
-			if (!this._child_menu_active)
+			if (!this._child_menu_active && e.relatedTarget)
 				{ this._hide_sub_menu(); }
 		});
 		this.attachEvent('onItemClick', function(id, e, trg){
@@ -32782,10 +33261,10 @@ webix$1.protoUI({
 		this._body_cell = webix$1.clone(this._dummy_cell_interface);
 		this._body_cell._view = this;
 
-		this.attachEvent('onMouseOut',function(){
+		this.attachEvent('onMouseOut',function(e){
 			if (this.getTopMenu()._settings.openAction == "click") 
 				{ return; }
-			if (!this._child_menu_active && !this._show_on_mouse_out)
+			if (!this._child_menu_active && !this._show_on_mouse_out && e.relatedTarget)
 				{ this.hide(); }
 		});
 
@@ -33236,8 +33715,11 @@ webix$1.protoUI({
 	_init_tabview_handlers:function(){
 		this.getTabbar().attachEvent("onOptionRemove", function(id){
 			var view = webix$1.$$(id);
-			if (view)
-				{ view.destructor(); }
+			if (view){
+				var parent = view.getParentView();
+				if(parent)
+					{ parent.removeView(view); }
+			}
 		});
 	}
 }, webix$1.ui.layout);
@@ -33470,7 +33952,7 @@ webix$1.protoUI({
 		this.cols_setter(cols);
 	},
 	_update_list: function(action) {
-		var top = this.getTopParentView();
+		var top = this;
 		var id = null;
 		var mode = false;
 
@@ -33911,6 +34393,195 @@ webix$1.protoUI({
 					return obj;
 				}
 			}
+		}
+	}, webix$1.DataLoader, webix$1.EventSystem, webix$1.ui.view);
+})();
+
+(function(){
+	var google, script;
+	webix$1.protoUI({
+		name:"geochart",
+		defaults:{
+			chart:{
+				displayMode:"auto",
+				region:"world",
+				resolution:"countries"
+			}
+		},
+		$init:function(config){
+			this.$view.innerHTML = "<div class='webix_map_content' style='width:100%;height:100%'></div>";
+			this._contentobj = this.$view.firstChild;
+			this._waitMap = webix$1.promise.defer();
+
+			config.chart = webix$1.extend(config.chart||{}, this.defaults.chart);
+
+			this.data.provideApi(this, true);
+			this.$ready.push(this.render);
+
+			this.data.attachEvent("onClearAll", webix$1.bind(this._refreshColumns, this)); 
+			this.data.attachEvent("onStoreUpdated", webix$1.bind(this._drawData, this));
+		},
+		getMap:function(waitMap){
+			return waitMap?this._waitMap:this._map;
+		},
+		_getCallBack:function(prev){
+			return webix$1.bind(function(){
+				if (typeof prev === "function") { prev(); }
+
+				google = google || window.google;
+				this._initMap();
+			}, this);
+		},
+		render:function(){
+			if(typeof window.google=="undefined"||typeof window.google.charts=="undefined"){
+				if(!script){
+					script = document.createElement("script");
+					script.type = "text/javascript";
+
+					script.src = "//www.gstatic.com/charts/loader.js";
+					document.getElementsByTagName("head")[0].appendChild(script);
+				}
+				script.onload = this._getCallBack(script.onload);
+			}
+			else //there's a custom link to google api in document head
+				{ (this._getCallBack())(); }
+		},
+		_initMap:function(){
+			if(!google.visualization || !google.visualization.GeoChart){
+					google.charts.load("current", {
+					"packages":["geochart"],
+					"mapsApiKey": this._settings.key
+				});
+				google.charts.setOnLoadCallback(webix$1.bind(function(){
+					this._initMap();
+				}, this));
+			}
+			else{
+				this._map = new google.visualization.GeoChart(this._contentobj);
+				this._mapEvents();
+				
+        		this._waitMap.resolve(this._map);
+			}
+		},
+		$onLoad:function(obj, driver){
+			if(!this._map){
+				this._waitMap.then(webix$1.bind(function(){
+					this.parse(obj, this._settings.datatype);
+				}, this));
+				return true;
+			}
+			return false;
+		},
+		_drawData:function(){
+			if(!this._map){
+				if(!this._map) 
+					{ this._waitMap.then(webix$1.bind(this._drawData, this)); }
+				return;
+			}
+				
+			var columns = this._columns&&this._columns.length?this._columns:this._defineColumns();
+			var data = [];
+			this.data.each(function(obj, i){
+				var this$1 = this;
+
+				var line = [];
+				for(var c = 0; c<columns.length; c++){
+					var value = obj[columns[c].label];
+					if(columns[c].type == "number")
+						{ value = value*1; }
+					else if(columns[c].role =="tooltip")
+						{ value = this$1._settings.tooltip(obj); }
+					line.push(value);
+				}
+				data.push(line);
+			}, this);
+
+			if(columns.length){
+				var table = new google.visualization.DataTable();
+				for(var i = 0; i<columns.length; i++)
+					{ table.addColumn(columns[i]); }
+				table.addRows(data);
+				
+				var view = new google.visualization.DataView(table);
+				this._map.draw(view, this._settings.chart);
+			}
+			else //draw clean chart
+				{ this._map.draw(google.visualization.arrayToDataTable([["", ""]]), {}); }
+
+		},
+		setDisplayMode:function(value){
+			this._settings.chart.displayMode = value;
+			this.refresh();
+		},
+		setRegion:function(value){
+			this._settings.chart.region = value;
+			this.refresh();
+		},
+		refresh:function(){
+			this._map.clearChart();
+			this._drawData();
+		},
+		tooltip_setter:function(value){
+			var tooltip = this._settings.chart.tooltip;
+			this._settings.chart.tooltip = webix$1.extend(tooltip || {}, {isHtml:true});
+			return webix$1.template(value);
+		},
+		$setSize:function(w, h){
+			if (webix$1.ui.view.prototype.$setSize.apply(this, arguments) && this._map){
+				webix$1.extend(this._settings, {width:w, height:h});
+				this.refresh();
+			}
+		},
+		_refreshColumns:function(){
+			this._columns = null;
+			this._drawData();
+		},
+		_getColumnType:function(item, key){
+			if (!item || webix$1.isUndefined(item[key]))
+				{ return "string"; }
+
+			var type = typeof item[key];
+			if(type =="string" && !isNaN(item[key]*1)) 
+				{ type = "number"; }
+			return type;
+		},
+		_defineColumns:function(item){
+			var this$1 = this;
+
+			var columns = this._settings.columns || [];
+			var item = this.data.pull[this.data.order[0]];
+			
+			//auto columns
+			if (!columns.length && item){
+				for (var key in item)
+					{ if (key !== "id") { columns.push(key); } }
+ 			}
+ 			//["title", "area"]
+			for(var i=0; i<columns.length; i++){
+				if (typeof columns[i] !== "object"){
+					columns[i] = {type:this$1._getColumnType(item, columns[i]), label:columns[i]};
+				}
+			}
+			
+			if(this._settings.tooltip)
+				{ columns.push({type:"string", role:"tooltip", p:{"html": true}}); }
+
+			this._columns  = columns;
+			return columns;
+		},
+		_mapEvents:function(){
+			google.visualization.events.addListener(this._map, "error", webix$1.bind(function(){this.callEvent("onMapError", arguments);}, this));
+			google.visualization.events.addListener(this._map, "ready", webix$1.bind(function(){this.callEvent("onMapReady", arguments);}, this));
+			google.visualization.events.addListener(this._map, "regionClick", webix$1.bind(function(){this.callEvent("onRegionClick", arguments);}, this));
+			google.visualization.events.addListener(this._map, "select", webix$1.bind(function(){
+				var selnow = this._map.getSelection()[0];
+				var sel = selnow || this._selprev;
+				if(sel){
+					var id = this.data.order[sel.row];
+					this._selprev = sel;
+					this.callEvent("onItemClick", [id, !!selnow]);
+				}
+			}, this));
 		}
 	}, webix$1.DataLoader, webix$1.EventSystem, webix$1.ui.view);
 })();
@@ -34927,7 +35598,9 @@ webix$1.markup = {
 		
 		if (!config.hidden)
 			{ modality(true); }
-		document.body.appendChild(box);
+
+		webix$1.toNode(config.container || document.body).appendChild(box);
+			
 		var x = config.left||Math.abs(Math.floor(((window.innerWidth||document.documentElement.offsetWidth) - box.offsetWidth)/2));
 		var y = config.top||Math.abs(Math.floor(((window.innerHeight||document.documentElement.offsetHeight) - box.offsetHeight)/2));
 		if (config.position == "top")
@@ -36281,9 +36954,17 @@ webix$1.protoUI({
         value:50,
         step:1,
         title:false,
+        moveTitle:true,
 		template:function(obj, common){
             var id = common._handle_id = "x" +webix$1.uid();
-            var html = "<div class='webix_slider_title'></div><div class='webix_slider_box'><div class='webix_slider_left'>&nbsp;</div><div class='webix_slider_right'></div><div class='webix_slider_handle' role='slider' aria-label='"+obj.label+(obj.title?(" "+obj.title(obj)):"")+"' aria-valuemax='"+obj.max+"' aria-valuemin='"+obj.min+"' aria-valuenow='"+obj.value+"' tabindex='0' id='"+id+"'>&nbsp;</div></div>";
+            var html = "";
+            var title = "<div class='webix_slider_title"+(obj.moveTitle?" webix_slider_move":"")+"'"+(!obj.moveTitle && obj.vertical?(" style='line-height:"+(obj.aheight-obj.inputPadding*2)+"px;'"):"")+"></div>";
+            var left = "<div class='webix_slider_left'>&nbsp;</div>";
+            var right = "<div class='webix_slider_right'></div>";
+            var handle = "<div class='webix_slider_handle' role='slider' aria-label='"+obj.label+(obj.title?(" "+obj.title(obj)):"")+"' aria-valuemax='"+obj.max+"' aria-valuemin='"+obj.min+"' aria-valuenow='"+obj.value+"' tabindex='0' id='"+id+"'>&nbsp;</div>";
+            
+            if(obj.vertical) { html =  "<div class='webix_slider_box'>"+right+left+handle+"</div>"+title; }
+            else { html = title+"<div class='webix_slider_box'>"+left+right+handle+"</div>"; }
             return common.$renderInput(obj, html, id);
 		}
 	},
@@ -36302,31 +36983,54 @@ webix$1.protoUI({
         var handle = this._get_slider_handle();
         var config = this._settings;
 
-        //10 - padding of webix_slider_box ( 20 = 10*2 )
-        //8 - width of handle / 2
+	    if(handle){ //view is rendered for sure
+	    	var size = config.vertical?this._content_height:this._get_input_width(config); //width or height
+	    	var value = config.value%config.step?(Math.round(config.value/config.step)*config.step):config.value;
+	    	var max = config.max - config.min;
+	    	
+	    	value =  Math.max(Math.min(value,config.max),config.min);
+	    	value = config.vertical?(max-(value-config.min)):(value-config.min);
+	    	
+	    	//top or left
+	    	var corner1 = Math.ceil((size - 2 * this._sliderPadding) * value / max);
+	    	//bottom or right
+	    	var corner2 = size - 2 * this._sliderPadding - corner1;
 
-	    if(handle){    //view is rendered for sure
-            var width = this._get_input_width(config);
+	    	var cornerStr = config.vertical?"top":"left";
+	    	var sizeStr = config.vertical?"height":"width";
 
-	        var value = config.value%config.step?(Math.round(config.value/config.step)*config.step):config.value;
-	        value =  Math.max(Math.min(value,config.max),config.min);
-            var max = config.max - config.min;
-            var left = Math.ceil((width - 2 * this._sliderPadding) * (value-config.min) / max);
-            var right = width - 2 * this._sliderPadding - left;
+	    	handle.style[cornerStr] = this._sliderPadding + corner1 - this._sliderHandleWidth / 2 + "px";
+            handle.parentNode.style[sizeStr] = size+"px";
 
-            handle.style.left = this._sliderPadding + left - this._sliderHandleWidth / 2 + "px";
-            handle.parentNode.style.width = width+"px";
-	        //1px border
-	        right = Math.min(Math.max(right, 2 * this._sliderBorder),width - this._sliderPadding * 2 - 2 * this._sliderBorder);
-	        left = Math.min(Math.max(left, 2 * this._sliderBorder),width - this._sliderPadding * 2 - 2 * this._sliderBorder);
-	        //width for left and right bars
+            //1px border
+            corner2= Math.min(Math.max(corner2, 2 * this._sliderBorder), size - this._sliderPadding * 2 - 2 * this._sliderBorder);
+            corner1 = Math.min(Math.max(corner1, 2 * this._sliderBorder), size - this._sliderPadding * 2 - 2 * this._sliderBorder);
+           
+            //width for left/top and right/bottom bars
             var part = handle.previousSibling;
-            part.style.width = right + "px";
+            part.style[sizeStr] = corner2 + "px";
             var last = part.previousSibling;
-            last.style.width = left + "px";
+            last.style[sizeStr] = corner1 + "px";
 
-            if (this._settings.title){
-                handle.parentNode.previousSibling.innerHTML = this._settings.title(this._settings, this);
+            this._set_title(handle, corner1, corner2, cornerStr);
+        }
+    },
+    _set_title:function(handle, corner1, corner2, cornerStr){
+        var config = this._settings;
+        if (this._settings.title){
+            var title = handle.parentNode[config.vertical?"nextSibling":"previousSibling"];
+            title.innerHTML = this._settings.title(this._settings, this);
+            
+            if(this._settings.moveTitle){
+                var pos = 0;
+                if(config.vertical) { pos = corner1+2 * this._sliderBorder-this._sliderHandleWidth/2; }
+                else{
+                    var half = title.clientWidth/2;
+                    var pos1 = half>corner1 ? (half-corner1-2*this._sliderBorder): 0;//left/top text is to large
+                    var pos2 = half>corner2 ? (half-corner2-2*this._sliderBorder-this._sliderHandleWidth/2): 0;//right/bottom text is too large
+                    pos = this._sliderPadding + corner1 - half + pos1 - pos2;
+                }    
+                title.style[cornerStr] = pos+ "px";
             }
         }
     },
@@ -36349,13 +37053,19 @@ webix$1.protoUI({
     $getValue:function(){
         return this._settings.value;
     },
-    $init:function(){
+    $init:function(config){
         if(webix$1.env.touch)
             { this.attachEvent("onTouchStart" , webix$1.bind(this._on_mouse_down_start, this)); }
         else
             { webix$1._event(this._viewobj, "mousedown", webix$1.bind(this._on_mouse_down_start, this)); }
 
         webix$1._event( this.$view, "keydown", webix$1.bind(this._handle_move_keyboard, this));
+
+        if(config.vertical){
+            config.height = config.height || webix$1.skin.$active.vSliderHeight;
+            this._viewobj.className += " webix_slider_vertical";
+            this._sliderPadding = webix$1.skin.$active.vSliderPadding;
+        }
     },
     $skin: function(){
 		this._sliderHandleWidth = webix$1.skin.$active.sliderHandleWidth; //8 - width of handle / 2
@@ -36470,24 +37180,30 @@ webix$1.protoUI({
 	_get_value_from_event:function(event,touchContext){
 		// this method takes 2 arguments in case of touch env
 		var pos = 0;
-		if(webix$1.env.touch){
-			pos = touchContext?touchContext.x: event.x;
-		}
+		var ax = this._settings.vertical?"y":"x";
+		if(webix$1.env.touch)
+			{ pos = touchContext?touchContext[ax]: event[ax]; }
 		else
-			{ pos = webix$1.html.pos(event).x; }
+			{ pos = webix$1.html.pos(event)[ax]; }
 		return this._get_value_from_pos(pos);
 	},
-    _get_value_from_pos:function(pos){
-        var config = this._settings;
-        //10 - padding of slider box
-        var max = config.max - config.min;
-        var left = webix$1.html.offset(this._get_slider_handle().parentNode).x + this._sliderPadding;
-	    var width = this._get_input_width(config) - 2 * this._sliderPadding;
-	    var newvalue = (width?(pos-left) * max / width:0);
-        newvalue = Math.round((newvalue+config.min)/config.step) * config.step;
-        return Math.max(Math.min(newvalue, config.max), config.min);
-    },
-    _init_onchange:function(){} //need not ui.text logic
+	_get_value_from_pos:function(pos){
+		var config = this._settings;
+		var max = config.max - config.min;
+		var ax = config.vertical?"y":"x";
+
+		//top or left depending on slider type
+		var corner = webix$1.html.offset(this._get_slider_handle().parentNode)[ax] + this._sliderPadding;
+		//height or width depending on slider type
+		var size = (config.vertical?this._content_height:this._get_input_width(config))-2*this._sliderPadding;
+
+		var newvalue = (size?(pos-corner) * max / size:0);
+		if(config.vertical)
+			{ newvalue = max-newvalue; }
+		newvalue = Math.round((newvalue+config.min)/config.step) * config.step;
+		return Math.max(Math.min(newvalue, config.max), config.min);
+	},
+	_init_onchange:function(){} //need not ui.text logic
 }, webix$1.ui.text);
 
 
@@ -37184,77 +37900,117 @@ webix$1.protoUI({
 
 (function(){
 
-webix$1.toPNG = function(id, name){
+var errorMessage = "non-existing view for export";
+
+webix$1.toPNG = function(id, options){
     var defer = webix$1.promise.defer();
+
     webix$1.require(webix$1.cdn + "/extras/html2canvas.min.js", function(){
+        //backward compatibility
+        if (typeof options === "string") { options = { filename: options }; }
+        options = options || {};
+        
         var view = webix$1.$$(id);
         if (view && view.$exportView)
-            { view = view.$exportView({}); }
+            { view = view.$exportView(options); }
+        webix$1.assert(view, errorMessage);
+        if(!view) { return defer.reject(errorMessage); }
+
         var node = view ? view.$view : webix$1.toNode(id);
-        var filename = (name||"data")+".png";
+        var filename = (options.filename||"Data")+".png";
         
         window.html2canvas(node).then(function(canvas) {
             var data = canvas.msToBlob?canvas.msToBlob():canvas.toDataURL("image/png");
-            webix$1.html.download(data, filename);
+            if(options.download !== false)
+                { webix$1.html.download(data, filename); }
             canvas.remove();
-            defer.resolve();
+            defer.resolve(data);
         });
     });
     return defer;
 };
 
-
 webix$1.toExcel = function(id, options){
-    var defer = webix$1.promise.defer();
-    var view = webix$1.$$(id);
     options = options || {};
+    options.export_mode = "excel";
 
-    if (view.$exportView)
-        { view = view.$exportView(options); }
+    id = webix$1.isArray(id)?id:[id];
+    var views = [];
 
-    webix$1.require(webix$1.cdn + "/extras/xlsx.core.min.js", function(){
-        options._export_mode = "excel";
+    for(var i = 0; i<id.length; i++){
+        var view = webix$1.$$(id[i]);
+        if (view && view.$exportView)
+            { view = view.$exportView(options); }
+        if(view) { views = views.concat(view); }
+        webix$1.assert(view, errorMessage);
+
+        //spreadsheet and excelviewer require plain data output first
+        if(options.dataOnly){
+            var scheme = getExportScheme(view, options);
+            views[i] = {
+                scheme : scheme,
+                exportData:getExportData(view, options, scheme),
+                spans:(options.spans ? getSpans(view, options) : [])
+            };
+        }
+    }
+    if(options.dataOnly) { return views; }
+
+    var defer = webix$1.promise.defer();
+    webix$1.require(webix$1.cdn + "/extras/xlsx.core.styles.min.js", function(){
+        if(!views.length) { return defer.reject(errorMessage); }
+
+        var wb = { SheetNames:[], Sheets:{}, Workbook:{ WBProps :{}, Names:[] }};
+        var name = webix$1.isArray(options.sheets) ? options.sheets : [options.name || "Data"];
         
-        var scheme = getExportScheme(view, options);
-        var result = getExportData(view, options, scheme);
+        for(var i = 0; i<views.length; i++){
+            var scheme = views[i].scheme || getExportScheme(views[i], options);
+            var result = views[i].exportData || getExportData(views[i], options, scheme);
+            var spans  = views[i].spans ? views[i].spans: (options.spans ? getSpans(views[i], options) : []);
+            var ranges =  views[i].ranges || [];
+            var styles = views[i].styles || [];
+            var data   = getExcelData(result, scheme, spans, styles);
+            var sname  = (name[i] || "Data"+i).replace(/[\*\?\:\[\]\\\/]/g,"").substring(0, 31);
 
-        var spans  = options.spans ? getSpans(view, options) : [];
-        var data   = getExcelData(result, scheme, spans);
+            wb.SheetNames.push(sname);
+            wb.Sheets[sname] = data;
+            wb.Workbook.Names = wb.Workbook.Names.concat(ranges);
+        }
 
-        var wb = { SheetNames:[], Sheets:[]};
-        var name = options.name || "Data";
-        name = name.replace(/[\*\?\:\[\]\\\/]/g,"").substring(0, 31);
-        wb.SheetNames.push(name);
-        wb.Sheets[name] = data;
-        
         var xls = XLSX.write(wb, {bookType:'xlsx', bookSST:false, type: 'binary'});
-        var filename =  (options.filename || name)+".xlsx";
-
+        var filename =  (options.filename || name.join(","))+".xlsx";
+        
         var blob = new Blob([str2array(xls)], { type: "application/xlsx" });
-        webix$1.html.download(blob, filename);
-        defer.resolve();
+        if(options.download !== false)
+            { webix$1.html.download(blob, filename); }
+        defer.resolve(blob);
     });
     return defer;
 };
 
 webix$1.toCSV = function(id, options){
-    var view = webix$1.$$(id);
     options = options || {};
-
-    if (view.$exportView)
+   
+    var view = webix$1.$$(id);
+    if (view && view.$exportView)
         { view = view.$exportView(options); }
-
-    options._export_mode = "csv";
+    webix$1.assert(view, errorMessage);
+    if(!view) { return webix$1.promise.reject(errorMessage); }
+    
+    options.export_mode = "csv";
+    options.filterHTML = true;
     
     var scheme = getExportScheme(view, options);
     var result = getExportData(view, options, scheme);
 
-
     var data = getCsvData(result, scheme);
     var filename =  (options.filename || "Data")+".csv";
-
+    
     var blob = new Blob(["\uFEFF" + data], { type: "text/csv" });
-    webix$1.html.download(blob, filename);
+    if(options.download !== false)
+        { webix$1.html.download(blob, filename); }
+
+    return webix$1.promise.resolve(blob);
 };
 
 function getCsvData(data, scheme) {
@@ -37264,14 +38020,17 @@ function getCsvData(data, scheme) {
 var font;
 webix$1.toPDF = function(id, options){
     var defer = webix$1.promise.defer();
+
     webix$1.require(webix$1.cdn + "/extras/pdfjs.js", function(){
-        var view = webix$1.$$(id);
         options = options || {};
 
-        if (view.$exportView)
+        var view = webix$1.$$(id);
+        if (view && view.$exportView)
             { view = view.$exportView(options); }
+        webix$1.assert(view, "non-existing view for export");
+        if(!view) { return defer.reject(); }
 
-        options._export_mode = "pdf";
+        options.export_mode = "pdf";
         options._export_font = font;
         options.fontName = options.fontName ||"pt-sans.regular";
 
@@ -37279,10 +38038,12 @@ webix$1.toPDF = function(id, options){
         var data = getExportData(view, options, scheme);
 
         var callback = function(pdf, options){
-            var filename = (options.filename || "data")+".pdf";
+            var filename = (options.filename || "Data")+".pdf";
             var blob = new Blob([pdf.toString()], { type: "application/pdf" });
-            webix$1.html.download(blob, filename);
-            defer.resolve();
+
+            if(options.download !== false)
+                { webix$1.html.download(blob, filename); }
+            defer.resolve(blob);
         };
 
         if(options._export_font)
@@ -37297,17 +38058,23 @@ webix$1.toPDF = function(id, options){
     return defer;
 };
 
+function getDataHelper(key, column, raw){
+    if (!raw && column.format)
+        { return function(obj){ return column.format(obj[key]); }; }
+
+    return function(obj){ return obj[key]; };
+}
 function getExportScheme(view, options){
     var scheme = [];
     var h_count = 0, f_count = 0;
     var isTable = view.getColumnConfig;
     var columns = options.columns;
     var raw = !!options.rawValues;
+    scheme.heights = {};
 
     if (!columns){
-        if (isTable){
-            columns = view._columns;
-        }
+        if (isTable)
+            { columns = [].concat(view._columns); }
         else {
             columns = [];
 	       	var obj = view.data.pull[view.data.order[0]];
@@ -37324,6 +38091,10 @@ function getExportScheme(view, options){
 		columns = arr;
 	}
 
+    if (options.ignore)
+        { for (var i=columns.length-1; i>=0; i--)
+            { if (options.ignore[columns[i].id])
+                { columns.splice(i,1); } } }
 
     if (options.id)
         { scheme.push({ id:"id", width:50, header:" ", template:function(obj){ return obj.id; }}); }
@@ -37360,17 +38131,16 @@ function getExportScheme(view, options){
 
 		var record = {
 			id:         column.id,
-			template:   ( (raw ? null : column.template) || function(key, column){return function(obj){ return column.format ? column.format(obj[key]) : obj[key]; };}(key, column)),
-			width:      ((column.width   || 200) * (options._export_mode==="excel"?8.43/70:1 )),
+			template:   (( raw || !column.template) ? getDataHelper(key, column, raw)  : column.template ),
+			width:      ((column.width   || 200) * (options.export_mode==="excel"?8.43/70:1 )),
 			header:     (column.header!==false?(column.header||key)  : "")
 		};
 
 		if(typeof record.header === "string") { record.header = [{text:record.header}]; }
 		else { record.header = webix$1.copy(record.header); }
 
-		for(var i = 0; i<record.header.length; i++){
-			record.header[i] = record.header[i]?(record.header[i].contentId?"":record.header[i].text):"";
-		}
+		for(var i = 0; i<record.header.length; i++)
+            { record.header[i] = record.header[i]?(record.header[i].contentId?"":record.header[i].text):""; }
 		h_count = Math.max(h_count, record.header.length);
 
 		if(view._settings.footer){
@@ -37411,6 +38181,12 @@ function getExportData(view, options, scheme){
     var data = [];
     var header, headers;
 
+    if(options.export_mode ==="excel" && options.docHeader){
+        data = [[(options.docHeader.text || options.docHeader).toString()], [""]];
+        if(options.docHeader.height)
+            { scheme.heights[0] = options.docHeader.height; }
+    }
+
     if( options.header !== false && scheme.length){
         for(var h=0; h < scheme[0].header.length; h++){
             headers = [];
@@ -37421,47 +38197,63 @@ function getExportData(view, options, scheme){
                     if (filterHTML)
                         { header = scheme[i].header[h] = header.replace(htmlFilter, ""); }
                 }
-                    
                 headers.push(header);
             }
-            if (options._export_mode === "excel") { data.push(headers); }
-            if (options._export_mode === "csv") {
-            	headers.map(function(item) {
-            		item.replace(/<[^>]*>/gi,"");
-            	});
-            	data.push(headers);
-            }
+
+            if(options.export_mode =="excel" && view._columns && options.heights !==false &&
+                (view._headers[h] !== webix$1.skin.$active.barHeight || options.heights == "all")
+            ) { scheme.heights[data.length] = view._headers[h]; }
+
+            if (options.export_mode !== "pdf")
+                { data[data.length] = headers; }
         }
     }
+    options.yCorrection = (options.yCorrection||0)-data.length;
 
     var isTree = (view.data.name == "TreeStore");
     var treeline = (options.flatTree || options.plainOutput) ? "" : " - ";
 
     view.data.each(function(item){
+        var this$1 = this;
+
         if(item){ //dyn loading
             var line = [];
             for (var i = 0; i < scheme.length; i++){
-                var column = scheme[i];
-                var cell = column.template(item, view.type, item[column.id], column, i);
-                if (!cell && cell !== 0) { cell = ""; }
-                if (filterHTML && typeof cell === "string"){
-                    if(isTree)
-                        { cell = cell.replace(/<div class=.webix_tree_none.><\/div>/, treeline); }
-                    cell = cell.replace(htmlFilter, "");
+                var column = scheme[i], cell = null;
+                //spreadsheet can output math
+                if(options.math && item["$"+column.id] && item["$"+column.id].charAt(0) =="=" && !item["$"+column.id].match(/^=(image|link|sparkline)\(/i))
+                    { cell = item["$"+column.id]; }
+                if(this$1._spans_pull){
+                    var span = this$1.getSpan(item.id, column.id);
+                    if(span && span[4] && span[0] == item.id && span[1] == column.id)
+                        { cell = span[4]; }
                 }
-                //remove end/start spaces(ex.hierarchy data)
-                if (typeof cell === "string" && options._export_mode === "csv")
-                    { cell = cell.trim(); }
-                //for multiline data
-                if (typeof cell === "string" && (options._export_mode === "excel" || options._export_mode === "csv")){
-                	cell = cell.replace(/<br\s*\/?>/mg,"\n");
+                if(!cell){
+                    cell = column.template(item, view.type, item[column.id], column, i);
+                    if (!cell && cell !== 0) { cell = ""; }
+                    if (filterHTML && typeof cell === "string"){
+                        if(isTree)
+                            { cell = cell.replace(/<div class=.webix_tree_none.><\/div>/, treeline); }
+                        cell = cell.replace(htmlFilter, "");
+                    }
+                    //remove end/start spaces(ex.hierarchy data)
+                    if (typeof cell === "string" && options.export_mode === "csv")
+                        { cell = cell.trim(); }
+                    //for multiline data
+                    if (typeof cell === "string" && (options.export_mode === "excel" || options.export_mode === "csv")){
+                        cell = cell.replace(/<br\s*\/?>/mg,"\n");
+                    }
                 }
                 line.push(cell);
             }
+
+            if(options.export_mode =="excel" && view._columns &&  options.heights !==false &&
+                ((item.$height && item.$height !== webix$1.skin.$active.rowHeight) || options.heights =="all")
+            ) { scheme.heights[data.length] = item.$height || this.config.rowHeight; }
+
             data.push(line);
         }
     }, view);
-
 
     if( options.footer !==false ){
         var f_count = scheme[0].footer?scheme[0].footer.length:0;
@@ -37472,8 +38264,21 @@ function getExportData(view, options, scheme){
                 if (filterHTML) { footer = scheme[i].footer[f] = footer.toString().replace(htmlFilter, ""); }
                 footers.push(footer);
             }
-            if(options._export_mode === "excel") { data.push(footers); }
+            
+            
+            if(options.export_mode =="excel" && view._columns && options.heights !==false &&
+                (view._footers[f] !== webix$1.skin.$active.barHeight || options.heights=="all")
+            ) { scheme.heights[data.length] = view._footers[f]; }
+
+            if(options.export_mode !== "pdf")
+                { data.push(footers); }
         }
+    }
+
+    if(options.export_mode ==="excel" && options.docFooter){
+        data = data.concat([[], [(options.docFooter.text || options.docFooter).toString()]]);
+        if(options.docFooter.height)
+            { scheme.heights[data.length-1] = options.docFooter.height; }
     }
 
     return data;
@@ -37492,32 +38297,70 @@ function excelDate(date) {
 }
 
 function getSpans(view, options){
+    var isTable = view.getColumnConfig;
     var pull = view._spans_pull;
     var spans = [];
 
-    if(pull){
-        //correction for spreadsheet
-        var xc = options.xCorrection || 0;
-        var yc = options.yCorrection || 0;
-        for(var row in pull){
-            //{ s:{c:1, r:0}, e:{c:3, r:0} }
-            var cols = pull[row];
-            for(var col in cols){
-                var sc = view.getColumnIndex(col) - xc;
-                var sr = view.getIndexById(row) - yc;
-                var ec = sc+cols[col][0]-1;
-                var er = sr+(cols[col][1]-1);
+    if(isTable){
+        if(options.header!==false)
+            { spans = getHeaderSpans(view, options, "header", spans); } 
 
-                //+1 to exclude excel header
-                spans.push({ s:{c:sc, r:sr+1}, e:{c:ec, r:er+1} });
+        if(pull){
+            var xc = options.xCorrection || 0;
+            var yc = options.yCorrection || 0;
+            for(var row in pull){
+                //{ s:{c:1, r:0}, e:{c:3, r:0} }
+                var cols = pull[row];
+                for(var col in cols){
+                    var sc = view.getColumnIndex(col) - xc;
+                    var sr = view.getIndexById(row) - yc;
+                    var ec = sc+cols[col][0]-1;
+                    var er = sr+(cols[col][1]-1);
+
+                    spans.push({ s:{c:sc, r:sr}, e:{c:ec, r:er} });
+                }
             }
         }
+        if(options.footer!==false)
+            { spans = getHeaderSpans(view, options, "footer", spans); }
+    }
+
+    return spans;
+}
+
+function getHeaderSpans(view, options, group, spans){
+    var columns = view.config.columns;
+    var delta = (options.docHeader?2:0)+(group == "header" ? 0 :((options.header!==false?view._headers.length:0)+view.count()));
+
+    for(var i=0; i<columns.length; i++){
+        var header = columns[i][group];
+        for(var h = 0; h<header.length; h++){
+            if(header[h] && (header[h].colspan || header[h].rowspan)){
+                spans.push({
+                    s:{ c:i, r:h+delta},
+                    e:{ c:i+(header[h].colspan||1)-1, r:h+(header[h].rowspan ||1)-1+delta }
+                });
+            }
+        }  
     }
     return spans;
 }
 
+function getStyles(r, c, styles){
+    //row index, column index, styles array
+    if(styles[r] && styles[r][c])
+        { return styles[r][c]; }
+    return "";
+}
+
+function getRowHeights(heights){
+    for(var i in heights)
+        { heights[i] = {hpx:heights[i], hpt:heights[i]*0.75}; }
+    return heights;
+} 
+
 var table = "_table";
-function getExcelData(data, scheme, spans) {
+function getExcelData(data, scheme, spans, styles) {
     var ws = {};
     var range = {s: {c:10000000, r:10000000}, e: {c:0, r:0 }};
     for(var R = 0; R != data.length; ++R) {
@@ -37531,22 +38374,36 @@ function getExcelData(data, scheme, spans) {
             if(cell.v === null) { continue; }
             var cell_ref = XLSX.utils.encode_cell({c:C,r:R});
 
-            if(typeof cell.v === 'number') { cell.t = 'n'; }
-            else if(typeof cell.v === 'boolean') { cell.t = 'b'; }
+            if(typeof cell.v === "number" || (cell.v && !isNaN(cell.v*1))){
+                cell.v = cell.v*1;
+                cell.t = "n";
+            }
+            else if(typeof cell.v === "boolean") 
+                { cell.t = "b"; }
             else if(cell.v instanceof Date) {
-                cell.t = 'n'; cell.z = XLSX.SSF[table][14];
+                cell.t = "n"; cell.z = XLSX.SSF[table][14];
                 cell.v = excelDate(cell.v);
             }
-            else { cell.t = 's'; }
+            else if(cell.v.charAt(0) == "="){
+                cell.t = "n";
+                cell.f = cell.v;
+                delete cell.v;
+            }
+            else { cell.t = "s"; }
+
+            if(styles)
+                { cell.s = getStyles(R, C, styles); }
 
             ws[cell_ref] = cell;
         }
     }
-    if(range.s.c < 10000000) { ws['!ref'] = XLSX.utils.encode_range(range); }
+    if(range.s.c < 10000000) { ws["!ref"] = XLSX.utils.encode_range(range); }
 
-    ws['!cols'] = getColumnsWidths(scheme);
+    ws["!rows"] = getRowHeights(scheme.heights);
+    ws["!cols"] = getColumnsWidths(scheme);
     if(spans.length)
         { ws["!merges"] = spans; }
+
     return ws;
 }
 
@@ -37646,29 +38503,36 @@ function getPdfData(scheme, data, options, callback){
         }).append((webix$1.i18n.dataExport.page||"Page")).pageNumber().append("  "+(webix$1.i18n.dataExport.of || "of")+"  ").pageCount();
     }
     
+    var horder = { text:0, image:1};
 
     //doc header, configurable
     if(options.docHeader){
         if(typeof options.docHeader == "string") { options.docHeader = {text:options.docHeader}; }
-        var docHeaderOps = webix$1.extend(options.docHeader, {
-            color: 0x666666, textAlign:"right"
+        webix$1.extend(options.docHeader, {
+            color: 0x666666, textAlign:"right", order:0
         });
-
-        var hd = doc.header({paddingBottom:10});
-        hd.text(docHeaderOps.text, docHeaderOps);
+        horder.text = options.docHeader.order;
     }
 
     if (options.docHeaderImage){
         if(typeof options.docHeaderImage == "string") { options.docHeaderImage = {url:options.docHeaderImage}; }
-        var hd = doc.header({paddingBottom:10});
-        var docImageOps = webix$1.extend(options.docHeaderImage, {
-            align:"right"
+        webix$1.extend(options.docHeaderImage, {
+            align:"right", order:1
         });
+        horder.image = options.docHeaderImage.order;
+    }
 
+    if(options.docHeader && horder.image > horder.text)
+        { doc.header({paddingBottom:10}).text(options.docHeader.text, options.docHeader); }
+
+    if (options.docHeaderImage){
         pdfjs.load(options.docHeaderImage.url, function(err, buffer){
             if (!err){
                 var img = new pdfjs.Image(buffer);
-                var image = hd.image(img, docImageOps);
+                doc.header({paddingBottom:10}).image(img, options.docHeaderImage);
+
+                if(options.docHeader && horder.image < horder.text)
+                    { doc.header({paddingBottom:10}).text(options.docHeader.text, options.docHeader); }
             }
             //render pdf and show in browser
             var pdf = doc.render();
@@ -37719,20 +38583,20 @@ webix$1.protoUI({
 			template: "<div class='webix_richtext_editor' contenteditable='true'>"+this.getValue()+"</div>",
 			on: {
 				onAfterRender: function() {
-					webix$1._event(
+					webix$1._event( 
 						top.getInputNode(),
-						"input",
+						"blur",
 						function(){
-							this.config.value = this.getInputNode().innerHTML;
-						},
-						{ bind: top }
+							top._updateValue(this.innerHTML);
+						}
 					);
 					webix$1._event( 
 						top.getInputNode(),
 						"keyup",
 						function(){
-						  top._getselection();
-					});
+							top._getselection();
+						}
+					);
 				}
 			},
 			onClick: {
@@ -37776,7 +38640,7 @@ webix$1.protoUI({
 	_getselection: function() {
 		var this$1 = this;
 
-		var top = this.getTopParentView();
+		var top = this;
 		var bar = top.$$("toolbar");
 		var sel;
 
@@ -37792,7 +38656,7 @@ webix$1.protoUI({
 
 		for (var i = 0; i < sel.rangeCount; ++i) {
 			var range = sel.getRangeAt(i);
-			if (this$1.$view.contains(this$1.getInputNode())){
+			if (top.$view.contains(this$1.getInputNode())){
 				if (document.queryCommandState("bold")) {
 					top.$$("bold").setValue(true);
 				} 
@@ -37857,16 +38721,22 @@ webix$1.protoUI({
 		var editableElement = this.$view.querySelector(".webix_richtext_editor");
 		editableElement.focus();
 	},
-	setValue: function(value) {
+	_updateValue: function(value){
 		var old = this.config.value;
 		this.config.value = value || "";
 
 		if (old !== value)
 			{ this.callEvent("onChange", [value, old]); }
-
+	},
+	setValue: function(value) {
+		this._updateValue(value);
 		this.refresh();
 	},
 	getValue: function() {
+		var input = this.getInputNode();
+		if (input)
+			{ this.config.value = this.getInputNode().innerHTML; }
+
 		var value = this.config.value;
 		return value || (value ===0?"0":"");
 	}
